@@ -1,0 +1,9 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+API Keys.txt
+API_Keys.txt
+api keys.txt
+api_keys.txt
+generated_images/

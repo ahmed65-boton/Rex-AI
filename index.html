@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
+  <title>Rex AI</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><div class="brand-mark">R</div><div><strong>Rex</strong><span>AI</span></div></div>
+    <button class="new-chat" id="btn-new-chat"><span>＋</span> New chat</button>
+    <div class="side-section">
+      <div class="side-label">Workspace</div>
+      <button class="side-action" id="btn-attach">📂 <span>Attach workspace</span></button>
+      <div class="workspace-mini" id="workspace-path"><span class="path-label">workspace</span><span class="path-val">none attached</span></div>
+    </div>
+    <div class="side-section side-grow">
+      <div class="side-label">Chats</div>
+      <button class="side-action" id="btn-chat-history">☰ <span>Chat history</span></button>
+    </div>
+    <div class="side-bottom">
+      <div class="bridge-pill"><i id="ws-dot" class="ws-dot disconnected"></i><span id="ws-label">Bridge offline</span></div>
+      <button class="side-action settings-action" id="btn-settings">⚙ <span>Settings</span></button>
+    </div>
+  </aside>
+
+  <section id="main-pane">
+    <header id="header">
+      <div class="mobile-brand"><div class="brand-mark">R</div><strong>Rex AI</strong></div>
+      <div class="model-picker">
+        <span class="model-label">Model</span>
+        <select id="provider-select" aria-label="AI provider">
+          <option value="groq">GroqCloud · GPT-OSS 120B</option>
+          <option value="openrouter">OpenRouter · GPT-OSS 120B</option>
+          <option value="gemini">Google Gemini · 3.6 Flash</option>
+        </select>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="exa-pill"><i></i><span>Exa</span><label class="toggle-switch"><input type="checkbox" id="exa-toggle"><div class="toggle-track"></div><div class="toggle-thumb"></div></label></div>
+      <div class="status-badge"><i id="status-dot" class="status-dot idle"></i><span id="status-text">Ready</span></div>
+    </header>
+
+    <div id="engine-select-wrap" hidden><select id="engine-select"><option value="cloud">Cloud</option><option value="wasm">Local WASM</option></select></div>
+    <div id="provider-select-wrap" hidden></div>
+    <div id="wasm-upload-wrap">
+      <label for="wasm-file-input" class="btn-upload">⬆ Browse .gguf</label>
+      <input type="file" id="wasm-file-input" accept=".gguf">
+      <span id="wasm-filename">no file selected</span><button class="btn-sm" id="wasm-load-btn">Load Model</button>
+    </div>
+    <div id="status-bar" hidden><div id="wasm-progress-wrap"><div class="wasm-progress-bar"><div class="wasm-progress-fill" id="wasm-progress-fill"></div></div><div class="wasm-progress-label"><span>loading model…</span><span id="wasm-progress-pct">0%</span></div></div></div>
+
+    <main id="chat-thread" role="log" aria-live="polite" aria-label="Conversation thread">
+      <div class="welcome" id="welcome-card">
+        <div class="welcome-icon">R</div>
+        <h1>How can I help?</h1>
+        <p>Rex can reason with your model, search the web with Exa, and work inside your attached workspace.</p>
+        <div class="starter-grid">
+          <button onclick="userInput.value='What is 2+2?';userInput.focus()"><b>Quick answer</b><span>What is 2+2?</span></button>
+          <button onclick="userInput.value=\"What’s the latest Roblox update?\";userInput.focus()"><b>Web search</b><span>What's the latest Roblox update?</span></button>
+          <button onclick="userInput.value='Create a Python file in my workspace';userInput.focus()"><b>Workspace</b><span>Create a Python file</span></button>
+          <button onclick="userInput.value=\"Search for the latest Python release and save the important information into notes.txt\";userInput.focus()"><b>Agent task</b><span>Search + save to notes.txt</span></button>
+        </div>
+      </div>
+    </main>
+
+    <div id="input-area">
+      <div id="input-dock">
+        <textarea id="user-input" placeholder="Message Rex…" aria-label="Message input" spellcheck="true"></textarea>
+        <div class="composer-footer"><span>Rex tools · Exa · PowerShell 7 · Workspace</span><div class="input-actions"><button class="btn-stop" id="btn-stop" aria-label="Stop generation">Stop</button><button class="btn-send" id="btn-send" aria-label="Send message">↑</button></div></div>
+      </div>
+      <div class="composer-note">Rex may use tools when they improve the answer. Terminal commands always require your approval.</div>
+    </div>
+  </section>
+</div>
+
+<div class="modal-backdrop" id="chat-modal" role="dialog" aria-modal="true" aria-label="Saved chats">
+  <div class="modal chat-modal"><div class="modal-header"><span>Chat history</span><button class="modal-close" id="chat-close">✕</button></div><div class="chat-list" id="chat-list"></div></div>
+</div>
+
+<div class="modal-backdrop settings-backdrop" id="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
+  <div class="settings-shell">
+    <aside class="settings-sidebar">
+      <button class="settings-x" id="settings-close" aria-label="Close settings">×</button>
+      <nav class="settings-nav">
+        <button class="settings-nav-btn active" data-page="general">⚙ <span>General</span></button>
+        <button class="settings-nav-btn" data-page="api-keys">🔑 <span>API Keys</span></button>
+        <button class="settings-nav-btn" data-page="models">◈ <span>Model</span></button>
+      </nav>
+    </aside>
+    <section class="settings-content">
+      <header class="settings-content-header">
+        <div><h2 id="settings-page-title">General</h2><p id="settings-page-subtitle">Appearance and personal preferences</p></div>
+      </header>
+
+      <div class="settings-page" data-page="general">
+        <div class="settings-section">
+          <h3>General</h3>
+          <div class="settings-row"><div><strong>Appearance</strong><p>Choose how Rex looks.</p></div><select class="setting-control" id="setting-appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+          <div class="settings-row"><div><strong>What should Rex call you?</strong><p>This name is supplied to the active model as a preference.</p></div><input class="setting-control setting-text" id="setting-user-name" type="text" maxlength="80" placeholder="Your name"></div>
+        </div>
+        <div class="settings-note" id="setup-note">API values are stored locally in IndexedDB.</div>
+      </div>
+
+      <div class="settings-page" data-page="api-keys" hidden>
+        <div class="settings-section">
+          <h3>API keys</h3>
+          <div class="api-file-import"><div><strong>Import API Keys.txt</strong><p class="field-help">Upload a supported API key file. Imported values are saved locally in IndexedDB.</p></div><div class="api-file-actions"><input id="api-key-file-input" type="file" accept=".txt,text/plain" hidden><button class="btn-ghost" id="api-key-file-btn" type="button">Upload file</button><span class="key-status" id="api-key-file-status">none imported</span></div></div>
+          <div class="settings-grid api-grid">
+            <div class="settings-card"><div class="card-title">GroqCloud</div><label class="field-label" for="key-groq">API KEY</label><input class="field-input" id="key-groq" type="password" autocomplete="off"><span class="key-status" id="key-status-groq">not configured</span></div>
+            <div class="settings-card"><div class="card-title">OpenRouter</div><label class="field-label" for="key-openrouter">API KEY</label><input class="field-input" id="key-openrouter" type="password" autocomplete="off"><span class="key-status" id="key-status-openrouter">not configured</span></div>
+            <div class="settings-card"><div class="card-title">Google Gemini</div><label class="field-label" for="key-gemini">API KEY</label><input class="field-input" id="key-gemini" type="password" autocomplete="off"><span class="key-status" id="key-status-gemini">not configured</span></div>
+            <div class="settings-card"><div class="card-title">Pollinations · Image Generation</div><label class="field-label" for="key-pollinations">API KEY</label><input class="field-input" id="key-pollinations" type="password" autocomplete="off"><span class="key-status" id="key-status-pollinations">file only</span><label class="field-label second-label" for="key-pollinationsModel">MODEL</label><input class="field-input" id="key-pollinationsModel" type="text" placeholder="flux" autocomplete="off"><span class="key-status" id="key-status-pollinationsModel">default</span></div>
+            <div class="settings-card exa-card"><div class="card-title">Exa</div><div class="exa-lock">● API key only</div><p id="exa-key-status">Exa is loaded from API_Keys.txt.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-page" data-page="models" hidden>
+        <div class="settings-section">
+          <h3>Available models</h3>
+          <p class="settings-description">Each provider has its own model selection. Rex sends the selected model name to that provider and also tells the model its runtime identity.</p>
+          <div class="model-settings-grid">
+            <div class="model-provider-card"><div class="model-provider-heading"><div><strong>GroqCloud</strong><span>Groq OpenAI-compatible API</span></div><button class="model-refresh" data-provider="groq" title="Refresh models">↻</button></div><select class="model-setting-select" id="model-select-groq"></select><p class="model-status" id="model-status-groq">Loading…</p></div>
+            <div class="model-provider-card"><div class="model-provider-heading"><div><strong>OpenRouter</strong><span>OpenRouter model catalog</span></div><button class="model-refresh" data-provider="openrouter" title="Refresh models">↻</button></div><select class="model-setting-select" id="model-select-openrouter"></select><p class="model-status" id="model-status-openrouter">Loading…</p></div>
+            <div class="model-provider-card"><div class="model-provider-heading"><div><strong>Google Gemini</strong><span>Gemini generateContent models</span></div><button class="model-refresh" data-provider="gemini" title="Refresh models">↻</button></div><select class="model-setting-select" id="model-select-gemini"></select><p class="model-status" id="model-status-gemini">Loading…</p></div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="settings-footer"><span>Rex settings are stored locally in your browser.</span><div><button class="btn-ghost" id="settings-close-2">Cancel</button><button class="btn-primary" id="settings-save">Save changes</button></div></footer>
+    </section>
+  </div>
+</div>
+<script src="js/app.js"></script>
+</body>
+</html>
