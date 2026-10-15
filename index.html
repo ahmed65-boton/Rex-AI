@@ -6,7 +6,8 @@
   <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
   <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
   <title>Rex AI</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
@@ -24,6 +25,7 @@
     </div>
     <div class="side-bottom">
       <div class="bridge-pill"><i id="ws-dot" class="ws-dot disconnected"></i><span id="ws-label">Bridge offline</span></div>
+      <button class="side-action" id="btn-remote-access">↗ <span>Remote access</span></button>
       <button class="side-action settings-action" id="btn-settings">⚙ <span>Settings</span></button>
     </div>
   </aside>
@@ -37,6 +39,7 @@
           <option value="groq">GroqCloud · GPT-OSS 120B</option>
           <option value="openrouter">OpenRouter · GPT-OSS 120B</option>
           <option value="gemini">Google Gemini · 3.6 Flash</option>
+           <option value="antigravity">Antigravity · Full Agent</option>
         </select>
       </div>
       <div class="header-spacer"></div>
@@ -70,11 +73,40 @@
     <div id="input-area">
       <div id="input-dock">
         <textarea id="user-input" placeholder="Message Rex…" aria-label="Message input" spellcheck="true"></textarea>
-        <div class="composer-footer"><span>Rex tools · Exa · PowerShell 7 · Workspace</span><div class="input-actions"><button class="btn-stop" id="btn-stop" aria-label="Stop generation">Stop</button><button class="btn-send" id="btn-send" aria-label="Send message">↑</button></div></div>
+        <div class="composer-footer"><span>Rex tools · Exa · PowerShell 7 · Workspace</span><div class="input-actions"><button class="btn-stop" id="btn-stop" aria-label="Stop generation">Stop</button><button class="btn-mic" id="btn-mic" aria-label="Record voice input" title="Record voice input"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3M8 21h8"/></svg></button><button class="btn-send" id="btn-send" aria-label="Send message">↑</button></div></div>
       </div>
       <div class="composer-note">Rex may use tools when they improve the answer. Terminal commands always require your approval.</div>
     </div>
   </section>
+</div>
+
+<div class="modal-backdrop remote-backdrop" id="remote-modal" role="dialog" aria-modal="true" aria-label="Remote access">
+  <div class="modal remote-modal">
+    <div class="modal-header"><span>Cloudflare Remote Access</span><button class="modal-close" id="remote-close">✕</button></div>
+    <div class="remote-body">
+      <p class="remote-intro">Expose this Rex instance through a temporary Cloudflare URL. No router port forwarding is needed.</p>
+      <div class="remote-status" id="remote-status">Remote access is off.</div>
+      <label class="field-label" for="remote-url">PUBLIC URL</label>
+      <input class="field-input remote-url" id="remote-url" type="text" readonly placeholder="Not running">
+      <label class="field-label" for="remote-code">ACCESS CODE</label>
+      <input class="field-input" id="remote-code" type="text" readonly placeholder="Not running">
+      <div class="remote-actions"><button class="btn-primary" id="remote-start" type="button">Enable remote access</button><button class="btn-ghost" id="remote-stop" type="button" hidden>Stop remote access</button></div>
+      <p class="field-help">The public page still requires this access code before it can use Rex’s bridge.</p>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop remote-gate" id="remote-gate" role="dialog" aria-modal="true" aria-label="Rex remote access code">
+  <div class="modal remote-gate-modal">
+    <div class="modal-header"><span>Connect to Rex</span></div>
+    <div class="remote-body">
+      <p class="remote-intro">Enter the access code shown on the computer running Rex.</p>
+      <label class="field-label" for="remote-gate-input">ACCESS CODE</label>
+      <input class="field-input" id="remote-gate-input" type="password" autocomplete="off" placeholder="Paste your Rex access code">
+      <div class="remote-gate-error" id="remote-gate-error"></div>
+      <div class="remote-actions"><button class="btn-primary" id="remote-gate-connect" type="button">Connect</button></div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="chat-modal" role="dialog" aria-modal="true" aria-label="Saved chats">
@@ -89,6 +121,7 @@
         <button class="settings-nav-btn active" data-page="general">⚙ <span>General</span></button>
         <button class="settings-nav-btn" data-page="api-keys">🔑 <span>API Keys</span></button>
         <button class="settings-nav-btn" data-page="models">◈ <span>Model</span></button>
+        <button class="settings-nav-btn" data-page="credits">🏆 <span>Credits</span></button>
       </nav>
     </aside>
     <section class="settings-content">
@@ -113,8 +146,22 @@
             <div class="settings-card"><div class="card-title">GroqCloud</div><label class="field-label" for="key-groq">API KEY</label><input class="field-input" id="key-groq" type="password" autocomplete="off"><span class="key-status" id="key-status-groq">not configured</span></div>
             <div class="settings-card"><div class="card-title">OpenRouter</div><label class="field-label" for="key-openrouter">API KEY</label><input class="field-input" id="key-openrouter" type="password" autocomplete="off"><span class="key-status" id="key-status-openrouter">not configured</span></div>
             <div class="settings-card"><div class="card-title">Google Gemini</div><label class="field-label" for="key-gemini">API KEY</label><input class="field-input" id="key-gemini" type="password" autocomplete="off"><span class="key-status" id="key-status-gemini">not configured</span></div>
-            <div class="settings-card"><div class="card-title">Pollinations · Image Generation</div><label class="field-label" for="key-pollinations">API KEY</label><input class="field-input" id="key-pollinations" type="password" autocomplete="off"><span class="key-status" id="key-status-pollinations">file only</span><label class="field-label second-label" for="key-pollinationsModel">MODEL</label><input class="field-input" id="key-pollinationsModel" type="text" placeholder="flux" autocomplete="off"><span class="key-status" id="key-status-pollinationsModel">default</span></div>
+            <div class="settings-card"><div class="card-title">Google Antigravity</div><label class="field-label" for="key-antigravity">API KEY</label><input class="field-input" id="key-antigravity" type="password" autocomplete="off"><span class="field-help">Separate Gemini API key used only by the Antigravity agent.</span></div><div class="settings-card"><div class="card-title">Pollinations · Image Generation</div><label class="field-label" for="key-pollinations">API KEY</label><input class="field-input" id="key-pollinations" type="password" autocomplete="off"><span class="key-status" id="key-status-pollinations">file only</span><label class="field-label second-label" for="key-pollinationsModel">MODEL</label><input class="field-input" id="key-pollinationsModel" type="text" placeholder="flux" autocomplete="off"><span class="key-status" id="key-status-pollinationsModel">default</span></div>
             <div class="settings-card exa-card"><div class="card-title">Exa</div><div class="exa-lock">● API key only</div><p id="exa-key-status">Exa is loaded from API_Keys.txt.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-page" data-page="credits" hidden>
+        <div class="settings-section">
+          <h3>Credits</h3>
+          <div class="settings-description">How Rex grew from a tiny project into what it is now 💀</div>
+          <div class="settings-card credits-card">
+            <div class="credit-line"><strong>Claude · normal</strong><span>I used Claude to start this project — at that time it was very basic.</span></div>
+            <div class="credit-line"><strong>ChatGPT · normal</strong><span>I used ChatGPT to improve it.</span></div>
+            <div class="credit-line"><strong>ChatGPT · business</strong><span>I used it to improve it more.</span></div>
+            <div class="credit-line"><strong>Claude · normal</strong><span>I used it to add new features.</span></div>
+            <div class="credit-line credit-ahmed"><strong>Ahmed</strong><span>I orchestrated the prompts 💀</span></div>
           </div>
         </div>
       </div>
@@ -135,6 +182,6 @@
     </section>
   </div>
 </div>
-<script src="js/app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

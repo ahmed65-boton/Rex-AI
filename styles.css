@@ -514,6 +514,101 @@ input, textarea, select {
   cursor: not-allowed;
 }
 
+
+.btn-mic {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.btn-mic svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.btn-mic:hover:not(:disabled) {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-main);
+}
+
+.btn-mic.recording {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.btn-mic:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#user-input.listening::placeholder {
+  color: var(--danger);
+}
+
+.msg-controls {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+  min-height: 26px;
+}
+
+.msg-ctrl-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.msg-ctrl-btn:hover:not(:disabled) {
+  color: var(--text-main);
+  background: var(--bg-surface-hover);
+  border-color: var(--border);
+}
+
+.msg-ctrl-btn.active {
+  color: var(--accent);
+}
+
+.msg-ctrl-btn.loading {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.msg-ctrl-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 20%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 10%, transparent); }
+}
+
 .btn-stop {
   display: none;
   background-color: var(--bg-surface-hover);
@@ -830,3 +925,42 @@ input, textarea, select {
 
 /* misc hidden elements */
 #wasm-upload-wrap, #engine-select-wrap, #provider-select-wrap, #status-bar { display: none; }
+
+/* ── Remote access ─────────────────────────────────────────── */
+.remote-modal, .remote-gate-modal { width: min(520px, calc(100vw - 32px)); }
+.remote-body { padding: 1.25rem; }
+.remote-intro { color: var(--text-muted); font-size: 0.875rem; line-height: 1.55; margin: 0 0 1.25rem; }
+.remote-status { color: var(--text-main); font-size: 0.8125rem; margin-bottom: 1rem; }
+.remote-url { cursor: pointer; }
+.remote-url:focus { border-color: var(--border-focus); }
+.remote-actions { display: flex; justify-content: flex-end; gap: 0.625rem; margin-top: 1rem; }
+.remote-gate-error { color: var(--danger); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.5rem; }
+#btn-remote-access { color: var(--accent); }
+#btn-remote-access:hover { color: var(--text-main); }
+
+/* Rex workspace picker — shared by Chrome, Firefox, and remote/mobile clients. */
+.workspace-picker-modal { width: min(720px, calc(100vw - 24px)); max-height: min(760px, calc(100vh - 24px)); display: flex; flex-direction: column; overflow: hidden; }
+.workspace-picker-toolbar { display: flex; align-items: center; gap: .65rem; padding: .75rem 1rem; border-bottom: 1px solid var(--border); }
+.workspace-up { width: 38px; height: 38px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); font-size: 1.15rem; }
+.workspace-up:hover:not(:disabled) { background: var(--bg-surface-hover); }
+.workspace-up:disabled { opacity: .4; cursor: default; }
+.workspace-new-folder { width: auto; min-width: 48px; height: 38px; padding: 0 .7rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); font-size: .95rem; white-space: nowrap; }
+.workspace-new-folder:hover:not(:disabled) { background: var(--bg-surface-hover); }
+.workspace-new-folder:disabled { opacity: .5; cursor: wait; }
+.workspace-breadcrumb { min-width: 0; flex: 1; padding: .55rem .75rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-main); color: var(--text-muted); font-family: var(--font-mono); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.workspace-picker-list { min-height: 260px; max-height: 48vh; overflow: auto; padding: .65rem; }
+.workspace-picker-entry { display: flex; align-items: center; width: 100%; gap: .75rem; padding: .7rem .8rem; border-radius: var(--radius-md); text-align: left; color: var(--text-main); }
+.workspace-picker-entry:hover, .workspace-picker-entry.selected { background: var(--bg-surface-hover); }
+.workspace-entry-icon { width: 1.5rem; text-align: center; flex: 0 0 auto; }
+.workspace-entry-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-picker-loading, .workspace-picker-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
+.workspace-picker-footer { display: flex; align-items: center; gap: 1rem; justify-content: space-between; padding: .85rem 1rem; border-top: 1px solid var(--border); }
+.workspace-picker-status { min-width: 0; flex: 1; color: var(--text-muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-picker-actions { display: flex; gap: .55rem; flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .workspace-picker-modal { width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+  .workspace-picker-list { max-height: 55vh; min-height: 220px; }
+  .workspace-picker-footer { flex-direction: column; align-items: stretch; }
+  .workspace-picker-actions { width: 100%; }
+  .workspace-picker-actions button { flex: 1; min-height: 42px; }
+}

@@ -30,19 +30,8 @@ if (Test-Path $requirements) {
     } else { Write-Host "[2/4] Modules up to date - skipping pip." }
 }
 
-$bridge = Join-Path $ProjectDir "terminal_bridge.py"
-if (-not (Test-Path $bridge)) { throw "terminal_bridge.py was not found." }
+$bridge = Join-Path $ProjectDir "server.py"
+if (-not (Test-Path $bridge)) { throw "server.py was not found." }
 
 Write-Host "[3/4] Starting Rex local bridge..."
-$bridgeProcess = Start-Process -FilePath $venvPython -ArgumentList @($bridge) -WorkingDirectory $ProjectDir -PassThru
-Start-Sleep -Milliseconds 900
-
-$url = "http://localhost:8000/index.html"
-Write-Host "[4/4] Opening $url"
-Start-Process $url
-Write-Host "Rex AI is running. Close this window to stop the bridge."
-
-try { Wait-Process -Id $bridgeProcess.Id }
-finally {
-    if (-not $bridgeProcess.HasExited) { Stop-Process -Id $bridgeProcess.Id -Force -ErrorAction SilentlyContinue }
-}
+& $venvPython $bridge

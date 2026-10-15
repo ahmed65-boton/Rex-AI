@@ -8,7 +8,7 @@
 'use strict';
 
 // Provider credentials are loaded from API_Keys.txt or Settings.
-const BUILTIN_API_KEYS = {};
+const BUILTIN_API_KEYS = { gemini: "REPLACE---ME----WITH----YOUR----GEMINI----KEY" };
 const API_KEY_FILENAMES = ['API Keys.txt', 'API_Keys.txt', 'api keys.txt', 'api_keys.txt'];
 let apiKeyFileName = null;
 let apiKeyFileExaOverride = null;
@@ -18,11 +18,12 @@ let apiKeyFileSource = null;
 /* ── App State ─────────────────────────────────────────────── */
 const state = {
   engine: 'cloud',           // 'cloud' | 'wasm'
-  provider: 'groq',          // groq | openrouter | gemini
+  provider: 'groq',          // groq | openrouter | gemini | antigravity
   modelSelections: {
     groq: 'openai/gpt-oss-120b',
     openrouter: 'openai/gpt-oss-120b',
     gemini: 'gemini-3.6-flash',
+    antigravity: 'gemini-3.8-flash',
   },
   userName: '',
   chatLastAccess: null,
@@ -39,12 +40,16 @@ const state = {
   chatId: null,
   bridgeWorkspace: false,
   pendingCommands: {},       // id → { resolve }
+  remoteMode: false,
+  remoteAccessCode: sessionStorage.getItem('rexRemoteAccessCode') || '',
+  remoteGateReady: null,
 };
 
 /* ── IndexedDB persistence ─────────────────────────────────── */
 const DB_NAME = 'rex_ai_db';
-const DB_VERSION = 1;
+const DB_VERSION = 10;
 let dbPromise;
+let historyStorage = 'indexeddb';
 let scrollFrame = 0;
 let streamFrame = 0;
 let pendingStreamBubble = null;
@@ -112,6 +117,9 @@ function parseApiKeyText(text) {
   const result = {};
   const aliases = {
     'gemini': 'gemini',
+    'antigravity': 'antigravity',
+    'antigravity api key': 'antigravity',
+    'google antigravity': 'antigravity',
     'google gemini': 'gemini',
     'open router': 'openrouter',
     'openrouter': 'openrouter',
@@ -119,6 +127,7 @@ function parseApiKeyText(text) {
     'openrouter model': 'openrouterModel',
     'groq model': 'groqModel',
     'gemini model': 'geminiModel',
+    'antigravity model': 'antigravityModel',
     'pollinations': 'pollinations',
     'pollinations api key': 'pollinations',
     'pollinations model': 'pollinationsModel',
@@ -181,11 +190,14 @@ async function loadApiKeyFile() {
 }
 
 async function loadKeys() {
-  // Start with embedded defaults, then let IndexedDB values win.
-  try { state.apiKeys = { ...BUILTIN_API_KEYS, ...((await idbGet('settings', 'apiKeys')) || {}) }; } catch (err) {
-    state.apiKeys = { ...BUILTIN_API_KEYS };
+  // Precedence: web-saved key > API Keys.txt > built-in fallback.
+  // This means the bundled API Keys.txt is used on first launch, but a key
+  // explicitly changed in Rex Settings remains the user's override.
+  let storedKeys = {};
+  try { storedKeys = (await idbGet('settings', 'apiKeys')) || {}; } catch (err) {
     console.warn('IndexedDB settings unavailable:', err);
   }
+  state.apiKeys = { ...BUILTIN_API_KEYS, ...storedKeys };
   apiKeyFileName = (await idbGet('settings', 'apiKeyFileName')) || null;
   apiKeyFileSource = (await idbGet('settings', 'apiKeyFileSource')) || null;
   apiKeyFileExaOverride = (await idbGet('settings', 'apiKeyFileExaOverride')) || null;
@@ -195,11 +207,20 @@ async function loadKeys() {
 
   const fileKeys = await loadApiKeyFile();
   if (Object.keys(fileKeys).length) {
-    const { exa, ...storedKeys } = fileKeys;
-    state.apiKeys = { ...state.apiKeys, ...storedKeys, exa: exa || apiKeyFileExaOverride || state.apiKeys.exa || '' };
+    const { exa, ...fileProviderKeys } = fileKeys;
+    // Only fill missing/default provider keys from API Keys.txt.
+    // A key changed through the web UI wins over the file.
+    const mergedKeys = { ...state.apiKeys };
+    for (const [key, value] of Object.entries(fileProviderKeys)) {
+      const current = String(mergedKeys[key] || '').trim();
+      const isBuiltinFallback = !current || current === BUILTIN_API_KEYS[key] || current.startsWith('REPLACE---ME');
+      if (isBuiltinFallback) mergedKeys[key] = value;
+    }
+    state.apiKeys = { ...mergedKeys, exa: exa || apiKeyFileExaOverride || state.apiKeys.exa || '' };
     if (fileKeys.groqModel) state.modelSelections.groq = fileKeys.groqModel;
     if (fileKeys.openrouterModel) state.modelSelections.openrouter = fileKeys.openrouterModel;
     if (fileKeys.geminiModel) state.modelSelections.gemini = fileKeys.geminiModel;
+    if (fileKeys.antigravityModel) state.modelSelections.antigravity = fileKeys.antigravityModel;
     apiKeyFileExaOverride = exa || apiKeyFileExaOverride || null;
     apiKeyFileSource = 'auto-detected';
     await idbPut('settings', state.apiKeys, 'apiKeys');
@@ -246,6 +267,19 @@ const chatThread      = $('chat-thread');
 const userInput       = $('user-input');
 const btnSend         = $('btn-send');
 const btnStop         = $('btn-stop');
+const btnMic         = $('btn-mic');
+const btnRemoteAccess = $('btn-remote-access');
+const remoteModal = $('remote-modal');
+const remoteClose = $('remote-close');
+const remoteStart = $('remote-start');
+const remoteStop = $('remote-stop');
+const remoteUrl = $('remote-url');
+const remoteCode = $('remote-code');
+const remoteStatus = $('remote-status');
+const remoteGate = $('remote-gate');
+const remoteGateInput = $('remote-gate-input');
+const remoteGateConnect = $('remote-gate-connect');
+const remoteGateError = $('remote-gate-error');
 const settingsModal   = $('settings-modal');
 const settingsClose   = $('settings-close');
 const settingsSave    = $('settings-save');
@@ -261,15 +295,22 @@ function setStatus(type, text) {
 }
 
 /* ── WebSocket Terminal Bridge ─────────────────────────────── */
+function isLocalOrigin() {
+  return location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '[::1]';
+}
+
 function connectWS() {
+  if (state.remoteMode) return;
   if (state.wsocket && state.wsocket.readyState < 2) return;
   try {
-    const ws = new WebSocket('ws://127.0.0.1:8765');
+    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = isLocalOrigin() ? '127.0.0.1:8765' : `${location.host}/bridge`;
+    const ws = new WebSocket(`${wsProtocol}//${wsHost}`);
     ws.onopen = () => {
       state.wsConnected = true;
       wsDot.className = 'ws-dot connected';
       wsLabel.textContent = 'Bridge: connected';
-      appendSystemMsg('Terminal bridge connected on ws://127.0.0.1:8765');
+      appendSystemMsg('Terminal bridge connected.');
     };
     ws.onclose = () => {
       state.wsConnected = false;
@@ -432,41 +473,256 @@ function hasNativeDirectoryPicker() {
 }
 
 async function bridgeRequest(payload) {
+  if (state.remoteMode) {
+    if (!state.remoteAccessCode) throw new Error('Enter the Rex remote access code first.');
+    const response = await fetch('/api/bridge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Rex-Access-Token': state.remoteAccessCode },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+    if (response.status === 401) {
+      state.remoteAccessCode = '';
+      sessionStorage.removeItem('rexRemoteAccessCode');
+      showRemoteGate('That access code is not valid or remote access was stopped.');
+      throw new Error('Rex remote access code rejected.');
+    }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok === false) throw new Error(result.error || `Remote bridge request failed (${response.status}).`);
+    return result;
+  }
   if (!state.wsConnected || !state.wsocket) {
     throw new Error('Terminal/workspace bridge is offline. Start terminal_bridge.py first.');
   }
   return sendCommand(payload, true);
 }
 
-btnAttach.addEventListener('click', async () => {
+function showRemoteGate(error = '') {
+  if (!remoteGate) return;
+  if (remoteGateError) remoteGateError.textContent = error;
+  remoteGate.classList.add('open');
+  setTimeout(() => remoteGateInput?.focus(), 50);
+}
+
+function hideRemoteGate() {
+  remoteGate?.classList.remove('open');
+  if (remoteGateError) remoteGateError.textContent = '';
+}
+
+function setRemoteAccessInfo(result) {
+  if (!result?.url) return;
+  if (remoteUrl) { remoteUrl.value = result.shareUrl || result.url; remoteUrl.dataset.href = result.shareUrl || result.url; }
+  if (remoteCode) remoteCode.value = result.accessCode || '';
+  if (remoteStatus) remoteStatus.textContent = 'Remote access is active.';
+  remoteStart?.setAttribute('hidden', '');
+  remoteStop?.removeAttribute('hidden');
+}
+
+async function startRemoteAccess() {
+  if (!state.wsConnected) {
+    remoteStatus.textContent = 'Start Rex locally first; the bridge must be connected.';
+    return;
+  }
+  remoteStart.disabled = true;
+  remoteStatus.textContent = 'Starting Cloudflare Quick Tunnel…';
   try {
-    if (hasNativeDirectoryPicker()) {
-      const handle = await window.showDirectoryPicker({ id: 'rex-ai-workspace', mode: 'readwrite' });
-      state.workspaceHandle = handle;
-      state.workspaceRootName = handle.name;
-      state.bridgeWorkspace = false;
-      await updateWorkspaceUI(handle.name, 'Browser File System');
-      appendSystemMsg(`Workspace attached: ${handle.name} (browser read/write access)`);
+    const result = await bridgeRequest({ action: 'remote_access_start' });
+    if (!result?.ok) throw new Error(result?.error || 'Could not start remote access.');
+    setRemoteAccessInfo(result);
+  } catch (err) {
+    remoteStatus.textContent = err.message;
+  } finally {
+    remoteStart.disabled = false;
+  }
+}
+
+async function stopRemoteAccess() {
+  if (!state.wsConnected) return;
+  remoteStop.disabled = true;
+  try {
+    await bridgeRequest({ action: 'remote_access_stop' });
+    remoteUrl.value = '';
+    remoteCode.value = '';
+    remoteStatus.textContent = 'Remote access stopped.';
+    remoteStart.removeAttribute('hidden');
+    remoteStop.setAttribute('hidden', '');
+  } catch (err) {
+    remoteStatus.textContent = err.message;
+  } finally {
+    remoteStop.disabled = false;
+  }
+}
+
+if (btnRemoteAccess) btnRemoteAccess.addEventListener('click', async () => {
+  remoteModal?.classList.add('open');
+  if (!state.remoteMode && state.wsConnected) {
+    try {
+      const result = await bridgeRequest({ action: 'remote_access_status' });
+      if (result?.running) setRemoteAccessInfo(result);
+    } catch (_) {}
+  }
+});
+remoteClose?.addEventListener('click', () => remoteModal?.classList.remove('open'));
+remoteModal?.addEventListener('click', e => { if (e.target === remoteModal) remoteModal.classList.remove('open'); });
+remoteStart?.addEventListener('click', startRemoteAccess);
+remoteStop?.addEventListener('click', stopRemoteAccess);
+remoteUrl?.addEventListener('click', () => { if (remoteUrl.value) window.open(remoteUrl.value, '_blank', 'noopener'); });
+remoteGateConnect?.addEventListener('click', async () => {
+  const code = remoteGateInput?.value.trim();
+  if (!code) { showRemoteGate('Enter the access code shown on the computer running Rex.'); return; }
+  state.remoteAccessCode = code;
+  sessionStorage.setItem('rexRemoteAccessCode', code);
+  remoteGateConnect.disabled = true;
+  try {
+    const result = await bridgeRequest({ action: 'ping' });
+    if (!result?.ok) throw new Error(result?.error || 'Connection failed.');
+    hideRemoteGate();
+    state.remoteGateReady?.();
+    state.remoteGateReady = null;
+    await loadKeys();
+  } catch (err) {
+    state.remoteAccessCode = '';
+    sessionStorage.removeItem('rexRemoteAccessCode');
+    showRemoteGate(err.message);
+  } finally { remoteGateConnect.disabled = false; }
+});
+remoteGateInput?.addEventListener('keydown', e => { if (e.key === 'Enter') remoteGateConnect.click(); });
+
+let workspacePickerEl = null;
+let workspacePickerPath = '';
+
+function ensureWorkspacePicker() {
+  if (workspacePickerEl) return workspacePickerEl;
+  workspacePickerEl = document.createElement('div');
+  workspacePickerEl.className = 'modal-backdrop workspace-picker-backdrop';
+  workspacePickerEl.id = 'workspace-picker';
+  workspacePickerEl.innerHTML = `
+    <div class="modal workspace-picker-modal" role="dialog" aria-modal="true" aria-label="Select workspace">
+      <div class="modal-header">
+        <span>Select workspace</span>
+        <button class="modal-close" id="workspace-picker-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="workspace-picker-toolbar">
+        <button class="workspace-up" id="workspace-picker-up" type="button" title="Go up" aria-label="Go up">↑</button>
+        <div class="workspace-breadcrumb" id="workspace-picker-breadcrumb">This PC</div>
+        <button class="workspace-new-folder" id="workspace-picker-new-folder" type="button" title="Create folder" aria-label="Create folder">＋📁</button>
+      </div>
+      <div class="workspace-picker-list" id="workspace-picker-list"></div>
+      <div class="workspace-picker-footer">
+        <span class="workspace-picker-status" id="workspace-picker-status">Choose a folder.</span>
+        <div class="workspace-picker-actions">
+          <button class="btn-ghost" id="workspace-picker-cancel" type="button">Cancel</button>
+          <button class="btn-primary" id="workspace-picker-select" type="button">Select this folder</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(workspacePickerEl);
+  const close = () => workspacePickerEl.classList.remove('open');
+  $('workspace-picker-close').addEventListener('click', close);
+  $('workspace-picker-cancel').addEventListener('click', close);
+  workspacePickerEl.addEventListener('click', e => { if (e.target === workspacePickerEl) close(); });
+  $('workspace-picker-up').addEventListener('click', async () => {
+    const up = $('workspace-picker-up').dataset.parent || '';
+    if (!up && workspacePickerPath) workspacePickerPath = '';
+    else if (up) workspacePickerPath = up;
+    await renderWorkspacePicker();
+  });
+  $('workspace-picker-new-folder').addEventListener('click', async () => {
+    if (!workspacePickerPath) {
+      $('workspace-picker-status').textContent = 'Open a drive or folder first.';
       return;
     }
-
-    if (!state.wsConnected) {
-      const reason = !window.isSecureContext
-        ? 'This page is not running in a secure context.'
-        : 'This browser does not support showDirectoryPicker().';
-      appendSystemMsg(`${reason} Starting terminal_bridge.py enables the native workspace picker fallback.`);
-      throw new Error('Workspace picker unavailable. Start terminal_bridge.py and click Attach Workspace again.');
+    const name = window.prompt('New folder name:');
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      $('workspace-picker-status').textContent = 'Folder name cannot be empty.';
+      return;
     }
-
-    setStatus('waiting', 'Choose workspace…');
-    const result = await bridgeRequest({ action: 'pick_workspace' });
-    if (!result?.ok || !result.workspace) throw new Error(result?.error || 'No workspace selected.');
+    const button = $('workspace-picker-new-folder');
+    button.disabled = true;
+    try {
+      const result = await bridgeRequest({ action: 'workspace_mkdir', path: workspacePickerPath, name: trimmed });
+      if (!result?.ok) throw new Error(result?.error || 'Could not create folder.');
+      $('workspace-picker-status').textContent = `Created: ${result.name}`;
+      await renderWorkspacePicker(workspacePickerPath);
+    } catch (err) {
+      $('workspace-picker-status').textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $('workspace-picker-select').addEventListener('click', async () => {
+    if (!workspacePickerPath) {
+      $('workspace-picker-status').textContent = 'Select a drive or folder first.';
+      return;
+    }
+    const result = await bridgeRequest({ action: 'workspace_select', path: workspacePickerPath });
+    if (!result?.ok) throw new Error(result?.error || 'Could not select workspace.');
     state.workspaceHandle = null;
     state.bridgeWorkspace = true;
     state.workspaceRootName = result.workspaceName;
-    await updateWorkspaceUI(result.workspaceName, 'Bridge');
-    appendSystemMsg(`Workspace attached through local bridge: ${result.workspaceName}`);
+    await updateWorkspaceUI(result.workspaceName, 'Rex workspace picker');
+    appendSystemMsg(`Workspace attached: ${result.workspaceName}`);
     setStatus('idle', `Workspace: ${result.workspaceName}`);
+    close();
+  });
+  return workspacePickerEl;
+}
+
+async function renderWorkspacePicker(path = workspacePickerPath) {
+  ensureWorkspacePicker();
+  workspacePickerPath = path || '';
+  const list = $('workspace-picker-list');
+  const crumb = $('workspace-picker-breadcrumb');
+  const up = $('workspace-picker-up');
+  const status = $('workspace-picker-status');
+  list.innerHTML = '<div class="workspace-picker-loading">Loading…</div>';
+  status.textContent = 'Choose a folder.';
+  try {
+    const result = await bridgeRequest({ action: 'workspace_browse', path: workspacePickerPath });
+    if (!result?.ok) throw new Error(result?.error || 'Could not read this folder.');
+    workspacePickerPath = result.path || '';
+    crumb.textContent = result.path || 'This PC';
+    up.dataset.parent = result.parent || '';
+    up.disabled = !result.path;
+    list.innerHTML = '';
+    if (!result.entries?.length) {
+      list.innerHTML = '<div class="workspace-picker-empty">No folders here.</div>';
+    } else {
+      for (const entry of result.entries) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'workspace-picker-entry';
+        row.innerHTML = `<span class="workspace-entry-icon">${entry.type === 'drive' ? '💽' : '📁'}</span><span class="workspace-entry-name">${escHtml(entry.name)}</span>`;
+        row.addEventListener('dblclick', () => renderWorkspacePicker(entry.path));
+        row.addEventListener('click', () => {
+          document.querySelectorAll('.workspace-picker-entry.selected').forEach(el => el.classList.remove('selected'));
+          row.classList.add('selected');
+          $('workspace-picker-status').textContent = entry.path;
+        });
+        row.addEventListener('contextmenu', e => { e.preventDefault(); renderWorkspacePicker(entry.path); });
+        list.appendChild(row);
+      }
+    }
+  } catch (err) {
+    list.innerHTML = `<div class="workspace-picker-empty">${escHtml(err.message)}</div>`;
+    status.textContent = 'Unable to open this folder.';
+  }
+}
+
+async function openWorkspacePicker() {
+  ensureWorkspacePicker();
+  workspacePickerPath = '';
+  workspacePickerEl.classList.add('open');
+  await renderWorkspacePicker('');
+}
+
+btnAttach.addEventListener('click', async () => {
+  try {
+    // Use the same Rex picker everywhere. This makes Chrome, Firefox, and
+    // remote/mobile clients behave identically and avoids a second native UI.
+    await openWorkspacePicker();
   } catch (err) {
     if (err.name !== 'AbortError') {
       setStatus('error', 'Workspace unavailable');
@@ -691,7 +947,7 @@ async function dispatchTool(toolName, args) {
       } catch (e) { return { error: e.message }; }
     }
     case 'generate_image': {
-      if (!state.wsConnected) return { error: 'Image generation requires the local Rex bridge. Start terminal_bridge.py first.' };
+      if (!state.remoteMode && !state.wsConnected) return { error: 'Image generation requires the local Rex bridge. Start terminal_bridge.py first.' };
       try {
         const result = await bridgeRequest({ action: 'generate_image', prompt: args.prompt, model: args.model || state.apiKeys.pollinationsModel || 'flux', width: args.width || 1024, height: args.height || 1024 });
         if (!result?.ok) return { error: result?.error || 'Image generation failed.' };
@@ -769,43 +1025,64 @@ function providerConfig(provider) {
 async function openAICompatibleInfer(messages, onChunk) {
   const provider = state.provider;
   const cfg = providerConfig(provider);
-  if (!cfg.key || cfg.key === 'REPLACE_WITH_OPENROUTER_KEY') throw new Error(`${provider} API key not set. Open ⚙ Settings or upload an API Keys.txt file.`);
-
-  const body = {
-    model: cfg.model,
-    messages,
-    stream: true,
-    max_tokens: 4096,
-    tools: TOOLS_SCHEMA,
-    tool_choice: 'auto',
-  };
-  state.abortController = new AbortController();
-  const res = await fetch(cfg.url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${cfg.key}`, 'Content-Type': 'application/json', ...(cfg.extraHeaders || {}) },
-    body: JSON.stringify(body),
-    signal: state.abortController.signal,
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`${provider} API error ${res.status}: ${err.slice(0, 300)}`);
+  if (!cfg.key || cfg.key === 'REPLACE_WITH_OPENROUTER_KEY') {
+    throw new Error(`${providerLabel(provider)} API key is not configured. Open ⚙ Settings or import API Keys.txt.`);
   }
+  if (!cfg.model) throw new Error(`${providerLabel(provider)} has no model selected.`);
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let fullText = '';
-  const toolCalls = {};
-  let buffer = '';
-  const consumeLine = rawLine => {
-    const line = rawLine.trim();
-    if (!line || !line.startsWith('data:')) return;
-    const raw = line.slice(5).trim();
-    if (raw === '[DONE]') return;
-    try {
-      const delta = JSON.parse(raw);
+  const request = async includeTools => {
+    const body = {
+      model: cfg.model,
+      messages,
+      stream: true,
+      max_tokens: 4096,
+    };
+    if (includeTools) {
+      body.tools = TOOLS_SCHEMA;
+      body.tool_choice = 'auto';
+    }
+
+    state.abortController = new AbortController();
+    const res = await fetch(cfg.url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${cfg.key}`,
+        'Content-Type': 'application/json',
+        ...(cfg.extraHeaders || {}),
+      },
+      body: JSON.stringify(body),
+      signal: state.abortController.signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.text().catch(() => '');
+      const message = `${providerLabel(provider)} API error ${res.status}: ${err.slice(0, 800)}`;
+      const retryWithoutTools = includeTools && (res.status === 400 || res.status === 422);
+      if (retryWithoutTools) return request(false);
+      throw new Error(message);
+    }
+
+    if (!res.body) throw new Error(`${providerLabel(provider)} returned an empty response body.`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    const toolCalls = {};
+    let buffer = '';
+
+    const consumeLine = rawLine => {
+      const line = rawLine.trim();
+      if (!line || !line.startsWith('data:')) return;
+      const raw = line.slice(5).trim();
+      if (!raw || raw === '[DONE]') return;
+      let delta;
+      try { delta = JSON.parse(raw); } catch (_) { return; }
       const choice = delta.choices?.[0];
       const d = choice?.delta;
-      if (d?.content) { fullText += d.content; onChunk(d.content); }
+      if (typeof d?.content === 'string' && d.content) {
+        fullText += d.content;
+        onChunk(d.content);
+      }
       for (const tc of (d?.tool_calls || [])) {
         const idx = tc.index ?? 0;
         if (!toolCalls[idx]) toolCalls[idx] = { id: '', name: '', args: '' };
@@ -813,29 +1090,34 @@ async function openAICompatibleInfer(messages, onChunk) {
         if (tc.function?.name) toolCalls[idx].name = tc.function.name;
         if (tc.function?.arguments) toolCalls[idx].args += tc.function.arguments;
       }
-    } catch (_) {}
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) consumeLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer) consumeLine(buffer);
+
+    const calls = Object.values(toolCalls).filter(call => call.name).map(call => ({
+      ...call,
+      id: call.id || `tool_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    }));
+    return { text: fullText, toolCalls: [], assistantToolCalls: calls };
   };
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() || '';
-    lines.forEach(consumeLine);
-  }
-  if (buffer) consumeLine(buffer);
 
-  const calls = Object.values(toolCalls).filter(c => c.name);
-  if (!calls.length) return { text: fullText, toolCalls: [], assistantToolCalls: [] };
-  return { text: fullText, toolCalls: [], assistantToolCalls: calls };
+  return request(true);
 }
-
 function getModel(provider) {
   return state.modelSelections?.[provider] || (provider === 'gemini' ? 'gemini-3.6-flash' : 'openai/gpt-oss-120b');
 }
 
 function providerLabel(provider) {
-  return ({ groq: 'GroqCloud', openrouter: 'OpenRouter', gemini: 'Google Gemini' })[provider] || provider;
+  return ({ groq: 'GroqCloud', openrouter: 'OpenRouter', gemini: 'Google Gemini', antigravity: 'Antigravity' })[provider] || provider;
 }
 
 function modelIdentity(provider = state.provider) {
@@ -873,7 +1155,7 @@ async function loadProviderSettings() {
   const savedProvider = await idbGet('settings', 'provider');
   const savedModels = await idbGet('settings', 'modelSelections');
   const savedName = await idbGet('settings', 'userName');
-  if (savedProvider && ['groq','openrouter','gemini'].includes(savedProvider)) state.provider = savedProvider;
+  if (savedProvider && ['groq','openrouter','gemini','antigravity'].includes(savedProvider)) state.provider = savedProvider;
   if (savedModels && typeof savedModels === 'object') state.modelSelections = { ...state.modelSelections, ...savedModels };
   if (typeof savedName === 'string') state.userName = savedName;
 }
@@ -908,34 +1190,91 @@ function openRouterToolResultsForGemini(messages) {
 
 async function geminiInfer(messages, onChunk) {
   const key = state.apiKeys.gemini;
-  if (!key) throw new Error('Gemini API key not set. Open ⚙ Settings or upload an API Keys.txt file.');
+  if (!key) throw new Error('Google Gemini API key is not configured. Open ⚙ Settings or import API Keys.txt.');
   const model = getModel('gemini');
+  if (!model) throw new Error('Google Gemini has no model selected.');
+
   const systemMsg = messages.find(m => m.role === 'system');
   const contents = openRouterToolResultsForGemini(messages.filter(m => m.role !== 'system'));
-  const requestBody = {
-    contents,
-    tools: GEMINI_TOOLS,
-    toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
-    ...(systemMsg ? { systemInstruction: { parts: [{ text: systemMsg.content }] } } : {}),
-    generationConfig: { maxOutputTokens: 4096 },
+
+  const request = async includeTools => {
+    const requestBody = {
+      contents,
+      ...(includeTools ? {
+        tools: GEMINI_TOOLS,
+        toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+      } : {}),
+      ...(systemMsg ? { systemInstruction: { parts: [{ text: systemMsg.content }] } } : {}),
+      generationConfig: { maxOutputTokens: 4096 },
+    };
+
+    state.abortController = new AbortController();
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signal: state.abortController.signal,
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      const retryWithoutTools = includeTools && res.status === 400;
+      if (retryWithoutTools) return request(false);
+      throw new Error(`Google Gemini API error ${res.status}: ${errBody.slice(0, 800)}`);
+    }
+
+    const data = await res.json();
+    const candidate = data?.candidates?.[0];
+    if (!candidate) {
+      const blockReason = data?.promptFeedback?.blockReason;
+      throw new Error(blockReason ? `Google Gemini blocked this request: ${blockReason}.` : 'Google Gemini returned no candidate response.');
+    }
+    const parts = candidate?.content?.parts || [];
+    let fullText = '';
+    const calls = [];
+    for (const part of parts) {
+      if (typeof part.text === 'string' && part.text) {
+        fullText += part.text;
+        onChunk(part.text);
+      }
+      if (part.functionCall) {
+        calls.push({
+          id: `gemini_${Date.now()}_${calls.length}`,
+          name: part.functionCall.name,
+          args: JSON.stringify(part.functionCall.args || {}),
+        });
+      }
+    }
+    if (!fullText && !calls.length && candidate.finishReason) {
+      throw new Error(`Google Gemini finished without text (${candidate.finishReason}).`);
+    }
+    return { text: fullText, toolCalls: [], assistantToolCalls: calls };
   };
-  state.abortController = new AbortController();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody), signal: state.abortController.signal });
-  if (!res.ok) { const errBody = await res.text().catch(()=>''); /* Suppress Gemini 4xx silently — bad tool-signature errors are Gemini-internal and unactionable */ if (res.status >= 400 && res.status < 500) return { text: '', toolCalls: [], assistantToolCalls: [] }; throw new Error(`Gemini API error ${res.status}: ${errBody.slice(0, 300)}`); }
-  const data = await res.json();
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  let fullText = '';
-  const calls = [];
-  for (const part of parts) {
-    if (part.text) { fullText += part.text; onChunk(part.text); }
-    if (part.functionCall) calls.push({ id: `gemini_${Date.now()}_${calls.length}`, name: part.functionCall.name, args: JSON.stringify(part.functionCall.args || {}) });
-  }
-  return { text: fullText, toolCalls: [], assistantToolCalls: calls };
+
+  return request(true);
+}
+async function antigravityInfer(messages, onChunk) {
+  const key = state.apiKeys.antigravity;
+  if (!key || key.startsWith('REPLACE---ME')) throw new Error('Antigravity API key is not configured. Open ⚙ Settings.');
+  if (!state.bridgeWorkspace && !state.wsConnected) throw new Error('Antigravity needs the Rex workspace bridge. Start Rex normally and attach a workspace.');
+  const nonSystem = messages.filter(m => m.role !== 'system');
+  const recent = nonSystem.slice(-24).map(m => {
+    if (m.role === 'user') return `User: ${m.content}`;
+    if (m.role === 'assistant') return `Antigravity/Rex: ${m.content || ''}`;
+    return '';
+  }).filter(Boolean).join('\n\n');
+  const system = messages.find(m => m.role === 'system')?.content || '';
+  const prompt = `${system}\n\nYou are operating as the Antigravity agent for Rex. The selected workspace is already mounted to you.\n\nConversation context:\n${recent}`;
+  const result = await bridgeRequest({ action: 'antigravity', prompt, apiKey: key });
+  if (!result?.ok) throw new Error(result?.error || 'Antigravity failed.');
+  if (result.text) onChunk(result.text);
+  return { text: result.text || '', toolCalls: [], assistantToolCalls: [] };
 }
 
 async function cloudInfer(messages, onChunk) {
   if (state.provider === 'gemini') return geminiInfer(messages, onChunk);
+  if (state.provider === 'antigravity') return antigravityInfer(messages, onChunk);
   return openAICompatibleInfer(messages, onChunk);
 }
 
@@ -981,7 +1320,7 @@ RESPONSE STYLE — follow strictly:
 - No padding, unsolicited caveats, or alternatives after the answer is complete.
 - Plain prose for simple answers. Use lists or tables only when they genuinely help.
 - For web search results, summarize in 2-4 sentences max. Do not dump raw results.
-- Use markdown so it renders — **bold**, *italic*, `code`, tables, headings. Never output raw * or _ characters as literal text.
+- Use markdown so it renders — **bold**, *italic*, \`code\`, tables, headings. Never output raw * or _ characters as literal text.
 - PowerShell 7 syntax only. Never cmd.exe or .bat syntax unless explicitly asked.
 `;
 
@@ -998,26 +1337,116 @@ async function createNewChat() {
   await saveCurrentChat();
 }
 
+function historyFallbackRead() {
+  try {
+    const raw = localStorage.getItem('rexChatHistory');
+    const chats = raw ? JSON.parse(raw) : [];
+    return Array.isArray(chats) ? chats.filter(Boolean) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function historyFallbackWrite(chats) {
+  try {
+    localStorage.setItem('rexChatHistory', JSON.stringify(chats));
+    return true;
+  } catch (err) {
+    console.warn('Could not write chat history fallback:', err);
+    return false;
+  }
+}
+
+function normalizeChat(chat) {
+  if (!chat || !chat.id) return null;
+  const messages = Array.isArray(chat.messages) ? chat.messages.filter(Boolean) : [];
+  return {
+    id: String(chat.id),
+    title: String(chat.title || (messages.find(m => m && m.role === 'user')?.content || 'New chat')).replace(/\s+/g, ' ').slice(0, 70) || 'New chat',
+    messages,
+    updatedAt: Number(chat.updatedAt) || 0,
+  };
+}
+
+function mergeChats(...sources) {
+  const merged = new Map();
+  for (const source of sources) {
+    for (const raw of (Array.isArray(source) ? source : [])) {
+      const chat = normalizeChat(raw);
+      if (!chat) continue;
+      const previous = merged.get(chat.id);
+      if (!previous || chat.updatedAt >= previous.updatedAt) merged.set(chat.id, chat);
+    }
+  }
+  return [...merged.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+async function getSavedChats() {
+  let indexedChats = [];
+  let indexedOk = false;
+  try {
+    indexedChats = await idbAll('chats');
+    indexedOk = true;
+  } catch (err) {
+    console.warn('IndexedDB chat history unavailable:', err);
+  }
+
+  const fallbackChats = historyFallbackRead();
+  const chats = mergeChats(indexedChats, fallbackChats);
+
+  if (indexedOk) {
+    historyStorage = 'indexeddb';
+    // Keep the fallback synchronized so a future IndexedDB failure does not
+    // make existing conversations disappear.
+    historyFallbackWrite(chats);
+  } else {
+    historyStorage = 'localstorage';
+  }
+
+  return chats;
+}
+
 async function saveCurrentChat() {
   if (!state.chatId) state.chatId = newChatId();
   const messages = conversationHistory.filter(m => m.role !== 'system');
   const firstUser = messages.find(m => m.role === 'user');
   const title = firstUser ? String(firstUser.content).replace(/\s+/g, ' ').slice(0, 70) : 'New chat';
-  await idbPut('chats', { id: state.chatId, title, messages, updatedAt: Date.now() });
+  const chat = normalizeChat({ id: state.chatId, title, messages, updatedAt: Date.now() });
+  if (!chat) return;
+
+  let indexedOk = false;
+  try {
+    await idbPut('chats', chat);
+    indexedOk = true;
+    historyStorage = 'indexeddb';
+  } catch (err) {
+    historyStorage = 'localstorage';
+    console.warn('IndexedDB chat save failed:', err);
+  }
+
+  const merged = mergeChats(historyFallbackRead(), [chat]);
+  const fallbackOk = historyFallbackWrite(merged);
+  if (!indexedOk && !fallbackOk) throw new Error('Chat history could not be saved.');
 }
 
 async function loadLatestChat() {
-  const chats = await idbAll('chats');
-  chats.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  if (!chats.length) { state.chatId = newChatId(); await saveCurrentChat(); return; }
+  const chats = await getSavedChats();
+  if (!chats.length) {
+    state.chatId = newChatId();
+    await saveCurrentChat();
+    return;
+  }
+
   const chat = chats[0];
   state.chatId = chat.id;
-  conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }, ...(chat.messages || [])];
+  conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }, ...chat.messages];
   renderStoredChat();
 }
 
 function renderStoredChat() {
   chatThread.innerHTML = '';
+  const wc = document.getElementById('welcome-card');
+  if (wc) wc.style.display = 'none';
   for (const message of conversationHistory) {
     if (message.role === 'user') appendUserMsg(message.content, false);
     else if (message.role === 'assistant' && message.content) appendStoredAgentMsg(message.content);
@@ -1026,27 +1455,50 @@ function renderStoredChat() {
 }
 
 async function openChatHistory() {
-  const chats = (await idbAll('chats')).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const chats = await getSavedChats();
   chatList.innerHTML = '';
-  if (!chats.length) { chatList.innerHTML = '<div class="chat-empty">No saved chats yet.</div>'; }
+  if (!chats.length) {
+    chatList.innerHTML = '<div class="chat-empty">No saved chats yet.</div>';
+    chatModal.classList.add('open');
+    return;
+  }
+
   for (const chat of chats) {
     const row = document.createElement('div');
     row.className = 'chat-row';
     row.innerHTML = `<button class="chat-open"><span class="chat-title">${escHtml(chat.title || 'New chat')}</span><span class="chat-date">${new Date(chat.updatedAt || Date.now()).toLocaleString()}</span></button><button class="chat-delete" title="Delete">✕</button>`;
     row.querySelector('.chat-open').addEventListener('click', async () => {
       state.chatId = chat.id;
-      conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }, ...(chat.messages || [])];
+      conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }, ...chat.messages];
       renderStoredChat();
       chatModal.classList.remove('open');
     });
     row.querySelector('.chat-delete').addEventListener('click', async e => {
       e.stopPropagation();
-      await idbDelete('chats', chat.id);
-      if (chat.id === state.chatId) await createNewChat();
+      let deletedFromIndexedDB = false;
+      try {
+        await idbDelete('chats', chat.id);
+        deletedFromIndexedDB = true;
+      } catch (_) {}
+
+      const fallback = historyFallbackRead().filter(item => String(item?.id) !== String(chat.id));
+      historyFallbackWrite(fallback);
+
+      if (chat.id === state.chatId) {
+        state.chatId = newChatId();
+        conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
+        chatThread.innerHTML = '';
+        const wc = document.getElementById('welcome-card');
+        if (wc) wc.style.display = '';
+        await saveCurrentChat();
+      }
       row.remove();
+      if (!deletedFromIndexedDB) historyStorage = 'localstorage';
+      if (!chatList.children.length) chatList.innerHTML = '<div class="chat-empty">No saved chats yet.</div>';
     });
     chatList.appendChild(row);
   }
+  chatModal.classList.add('open');
 }
 
 function escHtml(str) {
@@ -1110,7 +1562,13 @@ function formatMessage(raw) {
 
 function inlineFmt(text) {
   const codes = [];
+  const links = [];
   text = text.replace(/`([^`]+)`/g, (_, c) => { codes.push(`<code>${escHtml(c)}</code>`); return `\x01C${codes.length-1}\x01`; });
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_, label, url) => {
+    const cleanUrl = url.replace(/[\"<>]/g, '');
+    links.push(`<a href="${escHtml(cleanUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a>`);
+    return `\x01L${links.length-1}\x01`;
+  });
   text = escHtml(text);
   text = text.replace(/\*{3}(.+?)\*{3}/g, '<strong><em>$1</em></strong>');
   text = text.replace(/\*{2}(.+?)\*{2}/g, '<strong>$1</strong>');
@@ -1118,7 +1576,14 @@ function inlineFmt(text) {
   text = text.replace(/\*([^*\n]+?)\*/g,   '<em>$1</em>');
   text = text.replace(/(?<!\w)_([^_\n]+?)_(?!\w)/g, '<em>$1</em>');
   text = text.replace(/~~(.+?)~~/g, '<del>$1</del>');
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  text = text.replace(/(^|[\s(])((?:https?:\/\/|www\.)[^\s<]+)(?=$|[\s)\]}>])/gi, (_, prefix, url) => {
+    let shown = url;
+    let trailing = '';
+    while (/[.,!?;:]$/.test(shown)) { trailing = shown.slice(-1) + trailing; shown = shown.slice(0, -1); }
+    const href = shown.toLowerCase().startsWith('www.') ? `https://${shown}` : shown;
+    return `${prefix}<a href="${href}" target="_blank" rel="noopener noreferrer">${shown}</a>${trailing}`;
+  });
+  text = text.replace(/\x01L(\d+)\x01/g, (_, n) => links[n]);
   return text.replace(/\x01C(\d+)\x01/g, (_, n) => codes[n]);
 }
 
@@ -1150,11 +1615,205 @@ function renderGeneratedImage(url, prompt) {
   scrollBottom(true);
 }
 
+function appendUserMsg(text, scroll = true) {
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  div.innerHTML = `<div class="msg-meta">You</div><div class="msg-bubble">${escHtml(text)}</div>`;
+  chatThread.appendChild(div);
+  if (scroll) scrollBottom();
+  return div;
+}
+
+const SVG_RETRY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.8-4L3 10m0 0V4m0 6h6M4 13a8 8 0 0 0 14.8 4L21 14m0 0v6m0-6h-6"/></svg>';
+const SVG_SPEAKER = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6l-5 4H4Z"/><path d="M16 9.5a4 4 0 0 1 0 5M18.5 7a7.5 7.5 0 0 1 0 10"/></svg>';
+const SVG_STOP_AUDIO = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
+let ttsState = { audio: null, activeBtn: null, objectUrl: null };
+
+function stopTTS() {
+  if (ttsState.audio) {
+    ttsState.audio.pause();
+    ttsState.audio.currentTime = 0;
+  }
+  if (ttsState.objectUrl) URL.revokeObjectURL(ttsState.objectUrl);
+  if (ttsState.activeBtn) {
+    ttsState.activeBtn.innerHTML = SVG_SPEAKER;
+    ttsState.activeBtn.classList.remove('active', 'loading');
+  }
+  ttsState = { audio: null, activeBtn: null, objectUrl: null };
+}
+
+function pcmToWav(base64Audio, sampleRate = 24000, channels = 1) {
+  const binary = atob(base64Audio);
+  const pcm = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) pcm[i] = binary.charCodeAt(i);
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  const write = (offset, value) => { for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i)); };
+  write(0, 'RIFF'); view.setUint32(4, 36 + pcm.length, true); write(8, 'WAVE'); write(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); write(36, 'data'); view.setUint32(40, pcm.length, true);
+  return new Blob([header, pcm], { type: 'audio/wav' });
+}
+
+async function handleTTS(btn, getText) {
+  if (ttsState.activeBtn === btn && ttsState.audio) { stopTTS(); return; }
+  if (ttsState.audio) stopTTS();
+  const text = String(getText() || '').trim();
+  if (!text) return;
+  btn.disabled = true;
+  btn.classList.add('loading');
+  try {
+    const result = await bridgeRequest({ action: 'tts', text, apiKey: state.apiKeys.gemini || '' });
+    if (!result.ok) throw new Error(result.error || 'Gemini TTS failed.');
+    const mime = String(result.mimeType || 'audio/pcm').toLowerCase();
+    let blob;
+    if (mime.includes('pcm') || mime.includes('l16')) {
+      const rateMatch = mime.match(/rate=(\d+)/i);
+      blob = pcmToWav(result.audio, rateMatch ? Number(rateMatch[1]) : 24000);
+    } else {
+      const bin = atob(result.audio); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      blob = new Blob([bytes], { type: result.mimeType || 'audio/wav' });
+    }
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    ttsState = { audio, activeBtn: btn, objectUrl: url };
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    btn.classList.add('active');
+    btn.innerHTML = SVG_STOP_AUDIO;
+    audio.onended = stopTTS;
+    audio.onerror = () => { stopTTS(); appendSystemMsg('Audio playback failed.'); };
+    await audio.play();
+  } catch (err) {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    btn.innerHTML = SVG_SPEAKER;
+    appendSystemMsg(`TTS error: ${err.message}`);
+  }
+}
+
+function appendMsgControls(msgDiv, responseText, userPromptFn) {
+  msgDiv.querySelector('.msg-controls')?.remove();
+  const controls = document.createElement('div');
+  controls.className = 'msg-controls';
+  if (userPromptFn) {
+    const retry = document.createElement('button');
+    retry.className = 'msg-ctrl-btn'; retry.type = 'button';
+    retry.setAttribute('aria-label', 'Retry response'); retry.title = 'Retry response'; retry.innerHTML = SVG_RETRY;
+    retry.addEventListener('click', () => handleRetry(msgDiv, retry, userPromptFn));
+    controls.appendChild(retry);
+  }
+  const speaker = document.createElement('button');
+  speaker.className = 'msg-ctrl-btn'; speaker.type = 'button';
+  speaker.setAttribute('aria-label', 'Read response aloud'); speaker.title = 'Read response aloud'; speaker.innerHTML = SVG_SPEAKER;
+  speaker.addEventListener('click', () => handleTTS(speaker, () => msgDiv.querySelector('.msg-bubble')?.dataset.rawText || responseText));
+  controls.appendChild(speaker);
+  msgDiv.appendChild(controls);
+}
+
+async function handleRetry(msgDiv, retryBtn, getUserPrompt) {
+  if (state.streaming) return;
+  const prompt = String(getUserPrompt() || '').trim();
+  const userIndex = conversationHistory.findIndex((m, i) => i > 0 && m.role === 'user' && m.content === prompt);
+  if (userIndex < 0) { appendSystemMsg('Could not find the original user prompt for this response.'); return; }
+  state.streaming = true;
+  retryBtn.disabled = true; retryBtn.classList.add('loading');
+  const bubble = msgDiv.querySelector('.msg-bubble');
+  const oldHtml = bubble?.innerHTML || '';
+  let streamed = '';
+  try {
+    const history = [{ role: 'system', content: buildRuntimeSystemPrompt() }, ...conversationHistory.slice(1, userIndex + 1)];
+    const result = await cloudInfer(history, chunk => { streamed += chunk; scheduleStreamRender(bubble, streamed); });
+    const finalText = streamed || result.text || '';
+    updateBubble(bubble, finalText, false);
+    bubble.dataset.rawText = finalText;
+    let responseIndex = -1;
+    for (let i = userIndex + 1; i < conversationHistory.length; i++) {
+      if (conversationHistory[i].role === 'user') break;
+      if (conversationHistory[i].role === 'assistant') responseIndex = i;
+    }
+    if (responseIndex >= 0) conversationHistory[responseIndex].content = finalText;
+    else conversationHistory.push({ role: 'assistant', content: finalText });
+    await saveCurrentChat();
+    appendMsgControls(msgDiv, finalText, getUserPrompt);
+  } catch (err) {
+    bubble.innerHTML = oldHtml;
+    appendSystemMsg(`Retry error: ${err.message}`);
+  } finally {
+    state.streaming = false;
+    retryBtn.disabled = false; retryBtn.classList.remove('loading');
+  }
+}
+
+function startRecording() {
+  if (!btnMic || state.streaming) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    appendSystemMsg('Microphone recording is not supported by this browser.'); return;
+  }
+  navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      sampleRate: 16000,
+    }
+  }).then(stream => {
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    const mimeType = candidates.find(type => MediaRecorder.isTypeSupported(type)) || '';
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const chunks = [];
+    state.mediaRecorder = recorder;
+    recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
+    recorder.onerror = () => { stream.getTracks().forEach(t => t.stop()); resetRecordingUI(); appendSystemMsg('Microphone recording failed.'); };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop()); resetRecordingUI();
+      if (!chunks.length) { appendSystemMsg('No audio was recorded.'); return; }
+      btnMic.disabled = true;
+      try {
+        setStatus('active', 'Transcribing…');
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let binary = ''; const step = 0x8000;
+        for (let i = 0; i < bytes.length; i += step) binary += String.fromCharCode(...bytes.subarray(i, i + step));
+        const result = await bridgeRequest({ action: 'stt', audio: btoa(binary), mimeType: blob.type || 'audio/webm' });
+        if (!result.ok) throw new Error(result.error || 'Groq Whisper transcription failed.');
+        userInput.value = result.text || ''; userInput.focus();
+        setStatus('idle', `Idle — ${providerLabel(state.provider)} · ${getModel(state.provider)}`);
+      } catch (err) {
+        appendSystemMsg(`STT error: ${err.message}`); setStatus('error', 'Transcription failed');
+      } finally { btnMic.disabled = false; }
+    };
+    recorder.start(500);
+    btnMic.classList.add('recording'); btnMic.setAttribute('aria-label', 'Stop recording'); btnMic.title = 'Stop recording'; btnMic.innerHTML = SVG_STOP_AUDIO;
+    userInput.classList.add('listening'); userInput.placeholder = 'Listening…';
+  }).catch(err => appendSystemMsg(err.name === 'NotAllowedError' ? 'Microphone permission denied.' : `Microphone error: ${err.message}`));
+}
+
+function resetRecordingUI() {
+  state.mediaRecorder = null;
+  btnMic.classList.remove('recording'); btnMic.setAttribute('aria-label', 'Record voice input'); btnMic.title = 'Record voice input';
+  btnMic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3M8 21h8"/></svg>';
+  userInput.classList.remove('listening'); userInput.placeholder = 'Message Rex…';
+}
+
+function stopRecording() {
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
+}
+
 function appendStoredAgentMsg(text) {
   const div = document.createElement('div');
   div.className = 'msg agent';
-  div.innerHTML = `<div class="msg-meta">Rex</div><div class="msg-bubble">${formatMessage(text)}</div>`;
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.dataset.rawText = text;
+  bubble.innerHTML = formatMessage(text);
+  div.innerHTML = '<div class="msg-meta">Rex</div>';
+  div.appendChild(bubble);
   chatThread.appendChild(div);
+  appendMsgControls(div, text, null);
 }
 
 function appendAgentBubble() {
@@ -1254,14 +1913,8 @@ async function sendMessage() {
 
     const result = await inferFn(requestHistory, onChunk);
 
-    // Gemini 4xx returns empty silently — nothing to show, clean up and exit
     if (!streamedText && !result.text && !result.assistantToolCalls?.length) {
-      agentBubble.remove();
-      setStatus('idle', `Idle — ${providerSelect.value}`);
-      state.streaming = false;
-      btnSend.disabled = false;
-      btnStop.classList.remove('visible');
-      return;
+      throw new Error('The selected model returned no text or tool call. Check the model selection and API response.');
     }
 
     updateBubble(agentBubble, streamedText || result.text || '', false);
@@ -1330,7 +1983,9 @@ async function sendMessage() {
     }
     const finalText = currentText;
     updateBubble(agentBubble, finalText || result.text || '', false);
+    agentBubble.dataset.rawText = finalText || result.text || '';
     conversationHistory.push({ role: 'assistant', content: finalText });
+    appendMsgControls(agentBubble.parentElement, finalText || result.text || '', () => text);
     state.chatLastAccess = modelIdentity();
     await saveCurrentChat();
 
@@ -1352,6 +2007,7 @@ async function sendMessage() {
     state.streaming = false;
     btnSend.disabled = false;
     btnStop.classList.remove('visible');
+    state.abortController = null;
   }
 }
 
@@ -1366,10 +2022,15 @@ btnStop.addEventListener('click', () => {
   if (state.wasmEngine?.exitCompletion) state.wasmEngine.exitCompletion();
 });
 
+if (btnMic) btnMic.addEventListener('click', () => {
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') stopRecording();
+  else startRecording();
+});
+
 /* ── Settings ───────────────────────────────────────────────── */
-const KEY_FIELDS = ['groq','openrouter','gemini','pollinations','pollinationsModel'];
+const KEY_FIELDS = ['groq','openrouter','gemini','antigravity','pollinations','pollinationsModel'];
 const MODEL_FALLBACKS = {
-  groq: ['openai/gpt-oss-120b'],
+  groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'],
   openrouter: ['openai/gpt-oss-120b'],
   gemini: ['gemini-3.6-flash'],
 };
@@ -1420,8 +2081,8 @@ function switchSettingsPage(page) {
   document.querySelectorAll('.settings-page').forEach(el => el.hidden = el.dataset.page !== page);
   document.querySelectorAll('.settings-nav-btn').forEach(el => el.classList.toggle('active', el.dataset.page === page));
   const title = $('settings-page-title');
-  const subtitles = { general: 'Appearance and personal preferences', 'api-keys': 'Provider credentials and API key import', models: 'Choose a model separately for each provider' };
-  if (title) title.textContent = page === 'api-keys' ? 'API Keys' : page === 'models' ? 'Model' : 'General';
+  const subtitles = { general: 'Appearance and personal preferences', 'api-keys': 'Provider credentials and API key import', models: 'Choose a model separately for each provider', credits: 'The humans and AIs behind Rex' };
+  if (title) title.textContent = page === 'api-keys' ? 'API Keys' : page === 'models' ? 'Model' : page === 'credits' ? 'Credits' : 'General';
   const subtitle = $('settings-page-subtitle');
   if (subtitle) subtitle.textContent = subtitles[page] || '';
   if (page === 'models') renderModelSettings();
@@ -1445,9 +2106,28 @@ async function fetchProviderModels(provider) {
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`${providerLabel(provider)} model list returned HTTP ${res.status}`);
   const data = await res.json();
-  let models = provider === 'gemini'
-    ? (data.models || []).filter(m => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map(m => String(m.name || '').replace(/^models\//, ''))
-    : (data.data || []).map(m => m.id).filter(Boolean);
+  let models;
+  if (provider === 'gemini') {
+    models = (data.models || [])
+      .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+      .map(m => String(m.name || '').replace(/^models\//, ''))
+      .filter(Boolean);
+  } else if (provider === 'groq') {
+    models = (data.data || [])
+      .filter(m => m.active !== false)
+      .filter(m => Number(m.max_completion_tokens || 1) > 1)
+      .map(m => m.id)
+      .filter(id => id && !/whisper|tts|audio|guard|safeguard/i.test(id));
+  } else {
+    models = (data.data || [])
+      .filter(m => {
+        const input = m.architecture?.input_modalities;
+        const output = m.architecture?.output_modalities;
+        return (!Array.isArray(input) || input.includes('text')) && (!Array.isArray(output) || output.includes('text'));
+      })
+      .map(m => m.id)
+      .filter(Boolean);
+  }
   models = [...new Set(models)].sort((a,b) => a.localeCompare(b));
   return models.length ? models : (MODEL_FALLBACKS[provider] || []);
 }
@@ -1515,6 +2195,7 @@ async function importApiKeysFile(file) {
   if (imported.groqModel) state.modelSelections.groq = imported.groqModel;
   if (imported.openrouterModel) state.modelSelections.openrouter = imported.openrouterModel;
   if (imported.geminiModel) state.modelSelections.gemini = imported.geminiModel;
+  if (imported.antigravityModel) state.modelSelections.antigravity = imported.antigravityModel;
   await idbPut('settings', state.apiKeys, 'apiKeys');
   await idbPut('settings', apiKeyFileName, 'apiKeyFileName');
   await idbPut('settings', apiKeyFileSource, 'apiKeyFileSource');
@@ -1576,9 +2257,37 @@ chatModal.addEventListener('click', e => { if (e.target === chatModal) chatModal
 /* ── Init ───────────────────────────────────────────────────── */
 async function init() {
   setStatus('idle', 'Loading…');
+  state.remoteMode = !isLocalOrigin();
+  if (state.remoteMode) {
+    const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const fragmentCode = fragment.get('access');
+    if (fragmentCode) {
+      state.remoteAccessCode = fragmentCode;
+      sessionStorage.setItem('rexRemoteAccessCode', fragmentCode);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  }
+  if (state.remoteMode) {
+    btnRemoteAccess?.setAttribute('hidden', '');
+    wsDot.className = 'ws-dot connected';
+    wsLabel.textContent = 'Remote bridge';
+    if (!state.remoteAccessCode) {
+      showRemoteGate();
+      setStatus('idle', 'Waiting for remote access code');
+      await new Promise(resolve => { state.remoteGateReady = resolve; });
+    } else {
+      try {
+        await bridgeRequest({ action: 'ping' });
+        hideRemoteGate();
+      } catch (_) {
+        showRemoteGate('Your saved access code is no longer valid.');
+        await new Promise(resolve => { state.remoteGateReady = resolve; });
+      }
+    }
+  }
   await openDB();
   await loadProviderSettings();
-  await loadKeys();
+  if (!state.remoteMode || state.remoteAccessCode) await loadKeys();
   const savedAppearance = await idbGet('settings', 'appearance');
   if (savedAppearance) { localStorage.setItem('rexAppearance', savedAppearance); document.documentElement.dataset.appearance = savedAppearance; }
   updateHeaderModel();
@@ -1587,11 +2296,13 @@ async function init() {
   exaToggle.checked = state.exaEnabled;
   updateKeyStatuses();
   await loadLatestChat();
-  connectWS();
+  if (historyStorage === 'localstorage') appendSystemMsg('Chat history is using the browser fallback storage.');
+  if (!state.remoteMode) connectWS();
 
-  if (!window.showDirectoryPicker || !window.isSecureContext) {
+  if (!state.remoteMode && (!window.showDirectoryPicker || !window.isSecureContext)) {
     appendSystemMsg('Workspace picker fallback: run terminal_bridge.py to attach a workspace from browsers without the File System Access picker.');
   }
+  if (state.remoteMode) appendSystemMsg('Rex is connected remotely through a Cloudflare Quick Tunnel.');
 
   if (apiKeyFileName) appendSystemMsg(`Loaded API keys from ${apiKeyFileName}. Exa and Pollinations are available through the API key file.`);
 

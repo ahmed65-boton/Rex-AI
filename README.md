@@ -7,6 +7,7 @@ Rex AI is a Windows browser-based hybrid AI agent. It combines cloud LLMs, Exa w
 - **GroqCloud** — default `openai/gpt-oss-120b`
 - **OpenRouter** — OpenAI-compatible; default `openai/gpt-oss-120b`
 - **Google Gemini** — native Gemini API; default `gemini-3.6-flash`
+- **Google Antigravity** — local autonomous agent; uses its own key and the currently attached Rex workspace
 - **Exa** — current web search
 - **Pollinations** — image generation; default image model `flux`
 
@@ -30,6 +31,7 @@ GroqCloud: YOUR_GROQ_API_KEY
 Exa: YOUR_EXA_API_KEY
 Pollinations: YOUR_POLLINATIONS_API_KEY
 Pollinations model: flux
+Antigravity: YOUR_ANTIGRAVITY_API_KEY
 ```
 
 A Pollinations secret key should stay in `API_Keys.txt`; do not put it into frontend JavaScript.
@@ -64,3 +66,9 @@ Rex also stores the last provider/model that successfully accessed each chat. Wh
 ## Storage
 
 Chats, model selections, the selected provider, appearance, user-name preference, and entered provider settings are stored in browser IndexedDB. API keys stored there are not encrypted.
+
+## Antigravity
+
+Rex can run the Google Antigravity SDK as a separate full agent. Its credential is stored under the `Antigravity` key, separate from Rex's normal Gemini key. When Antigravity is selected, Rex passes the currently attached workspace to `LocalAgentConfig(workspaces=[...])`, allowing the agent to inspect/edit that workspace and use its built-in terminal and web tools.
+
+Antigravity support requires `google-antigravity>=0.1.16`. The agent uses the Antigravity SDK's local workspace/tool runtime.
