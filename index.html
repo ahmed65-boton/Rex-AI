@@ -6,8 +6,9 @@
   <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin">
   <meta http-equiv="Cross-Origin-Embedder-Policy" content="require-corp">
   <title>Rex AI</title>
+  <base href="/">
   <link rel="icon" href="favicon.ico" type="image/x-icon">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="web/styles.css">
 </head>
 <body>
 <div id="app">
@@ -22,6 +23,8 @@
     <div class="side-section side-grow">
       <div class="side-label">Chats</div>
       <button class="side-action" id="btn-chat-history">☰ <span>Chat history</span></button>
+      <button class="side-action" id="btn-search-chats">⌕ <span>Search chats</span></button>
+      <button class="side-action" id="btn-export-chat">⇩ <span>Export current chat</span></button>
     </div>
     <div class="side-bottom">
       <div class="bridge-pill"><i id="ws-dot" class="ws-dot disconnected"></i><span id="ws-label">Bridge offline</span></div>
@@ -43,6 +46,10 @@
         </select>
       </div>
       <div class="header-spacer"></div>
+      <div class="chat-link-pill" title="Current chat">
+        <code id="chat-uid">—</code>
+        <button type="button" id="copy-chat-link" class="btn-ghost" aria-label="Copy chat link" title="Copy chat link">⧉</button>
+      </div>
       <div class="exa-pill"><i></i><span>Exa</span><label class="toggle-switch"><input type="checkbox" id="exa-toggle"><div class="toggle-track"></div><div class="toggle-thumb"></div></label></div>
       <div class="status-badge"><i id="status-dot" class="status-dot idle"></i><span id="status-text">Ready</span></div>
     </header>
@@ -72,8 +79,22 @@
 
     <div id="input-area">
       <div id="input-dock">
-        <textarea id="user-input" placeholder="Message Rex…" aria-label="Message input" spellcheck="true"></textarea>
-        <div class="composer-footer"><span>Rex tools · Exa · PowerShell 7 · Workspace</span><div class="input-actions"><button class="btn-stop" id="btn-stop" aria-label="Stop generation">Stop</button><button class="btn-mic" id="btn-mic" aria-label="Record voice input" title="Record voice input"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3M8 21h8"/></svg></button><button class="btn-send" id="btn-send" aria-label="Send message">↑</button></div></div>
+    <div id="image-preview" class="image-preview" hidden>
+      <img id="image-preview-thumb" alt="Attached image preview">
+      <span class="attach-file-label" id="attach-file-label" hidden></span>
+      <button class="image-preview-remove" id="image-preview-remove" type="button" aria-label="Remove attachment">✕</button>
+    </div>
+        <div class="prompt-suggest-wrap" id="prompt-suggest-wrap">
+          <div class="prompt-suggest" id="prompt-suggest" hidden role="listbox" aria-label="Saved prompts"></div>
+          <textarea id="user-input" placeholder="Message Rex…  (type / for prompts)" aria-label="Message input" spellcheck="true"></textarea>
+        </div>
+        <div class="composer-footer"><span>Rex tools · Exa · Shell · Workspace</span><div class="input-actions"><button class="btn-stop" id="btn-stop" aria-label="Stop generation">Stop</button><button class="btn-attach-img" id="btn-attach-img" aria-label="Attach file" title="Attach file (images, zip, docs — not .exe)">
+      <svg viewBox="0 0 24 24" aria-hidden="true" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+      </svg>
+    </button>
+    <input type="file" id="image-input" multiple hidden>
+    <button class="btn-mic" id="btn-mic" aria-label="Record voice input" title="Record voice input"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3M8 21h8"/></svg></button><button class="btn-send" id="btn-send" aria-label="Send message">↑</button></div></div>
       </div>
       <div class="composer-note">Rex may use tools when they improve the answer. Terminal commands always require your approval.</div>
     </div>
@@ -121,6 +142,8 @@
         <button class="settings-nav-btn active" data-page="general">⚙ <span>General</span></button>
         <button class="settings-nav-btn" data-page="api-keys">🔑 <span>API Keys</span></button>
         <button class="settings-nav-btn" data-page="models">◈ <span>Model</span></button>
+        <button class="settings-nav-btn" data-page="memory">🧠 <span>Memory</span></button>
+        <button class="settings-nav-btn" data-page="prompts">📝 <span>Prompts</span></button>
         <button class="settings-nav-btn" data-page="credits">🏆 <span>Credits</span></button>
       </nav>
     </aside>
@@ -149,19 +172,45 @@
             <div class="settings-card"><div class="card-title">Google Antigravity</div><label class="field-label" for="key-antigravity">API KEY</label><input class="field-input" id="key-antigravity" type="password" autocomplete="off"><span class="field-help">Separate Gemini API key used only by the Antigravity agent.</span></div><div class="settings-card"><div class="card-title">Pollinations · Image Generation</div><label class="field-label" for="key-pollinations">API KEY</label><input class="field-input" id="key-pollinations" type="password" autocomplete="off"><span class="key-status" id="key-status-pollinations">file only</span><label class="field-label second-label" for="key-pollinationsModel">MODEL</label><input class="field-input" id="key-pollinationsModel" type="text" placeholder="flux" autocomplete="off"><span class="key-status" id="key-status-pollinationsModel">default</span></div>
             <div class="settings-card exa-card"><div class="card-title">Exa</div><div class="exa-lock">● API key only</div><p id="exa-key-status">Exa is loaded from API_Keys.txt.</p></div>
           </div>
+          <button class="btn-ghost" id="change-passphrase" type="button" style="margin-top:1rem">Change API-key passphrase</button>
+        </div>
+      </div>
+
+      <div class="settings-page" data-page="memory" hidden>
+        <div class="settings-section">
+          <h3>Memory</h3>
+          <p class="settings-description">Rex can save useful, stable facts, preferences, goals, and ongoing projects you share so they can help in future chats. Edit one memory per line. These memories are stored locally in this browser.</p>
+          <label class="field-label" for="setting-memory">WHAT REX REMEMBERS</label>
+          <textarea class="memory-editor" id="setting-memory" rows="12" spellcheck="true" placeholder="For example:
+Prefers concise explanations.
+Building a browser-based AI assistant called Rex."></textarea>
+          <div class="settings-note" id="memory-status" aria-live="polite">No memories saved yet. Stored only in this browser.</div>
+          <div class="memory-actions"><button class="btn-ghost" id="memory-clear" type="button">Clear memory</button></div>
+        </div>
+      </div>
+
+      <div class="settings-page" data-page="prompts" hidden>
+        <div class="settings-section">
+          <h3>Prompt library</h3>
+          <p class="settings-description">Reusable prompt snippets. Type <code>/</code> in the message box to insert one, or save any user message as a prompt.</p>
+          <div class="prompt-library-toolbar">
+            <button class="btn-primary" id="prompt-add-btn" type="button">＋ New prompt</button>
+          </div>
+          <div class="prompt-library-list" id="prompt-library-list" aria-live="polite">
+            <div class="prompt-library-empty">No saved prompts yet.</div>
+          </div>
         </div>
       </div>
 
       <div class="settings-page" data-page="credits" hidden>
         <div class="settings-section">
           <h3>Credits</h3>
-          <div class="settings-description">How Rex grew from a tiny project into what it is now 💀</div>
+          <div class="settings-description">The people and tools behind Rex AI.</div>
           <div class="settings-card credits-card">
-            <div class="credit-line"><strong>Claude · normal</strong><span>I used Claude to start this project — at that time it was very basic.</span></div>
-            <div class="credit-line"><strong>ChatGPT · normal</strong><span>I used ChatGPT to improve it.</span></div>
-            <div class="credit-line"><strong>ChatGPT · business</strong><span>I used it to improve it more.</span></div>
-            <div class="credit-line"><strong>Claude · normal</strong><span>I used it to add new features.</span></div>
-            <div class="credit-line credit-ahmed"><strong>Ahmed</strong><span>I orchestrated the prompts 💀</span></div>
+            <div class="credit-line credit-ahmed"><strong>Ahmed · Creator</strong><span>Project direction, feature ideas, design decisions, testing, and orchestration.</span></div>
+            <div class="credit-line"><strong>ChatGPT · AI development assistance</strong><span>Helped with implementation, debugging, refactoring, and documentation.</span></div>
+            <div class="credit-line"><strong>Claude · AI development assistance</strong><span>Helped with early development and feature exploration.</span></div>
+            <p class="credits-note">Rex AI is an independent project. AI tools assisted development; project decisions and final integration remain with its creator.</p>
           </div>
         </div>
       </div>
@@ -182,6 +231,6 @@
     </section>
   </div>
 </div>
-<script src="app.js"></script>
+<script type="module" src="dist/app.js"></script>
 </body>
 </html>

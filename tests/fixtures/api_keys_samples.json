@@ -1,0 +1,50 @@
+{
+  "samples": [
+    {
+      "name": "valid_aliases_and_colons",
+      "input": "Groq: abc123\nOpen Router: key:with:colons\nGemini model: gemini-fast",
+      "expected": {
+        "groq": "abc123",
+        "openrouter": "key:with:colons",
+        "geminiModel": "gemini-fast"
+      }
+    },
+    {
+      "name": "empty_string",
+      "input": "",
+      "expected": {}
+    },
+    {
+      "name": "unknown_label_ignored",
+      "input": "not a provider: value",
+      "expected": {}
+    },
+    {
+      "name": "value_on_next_line",
+      "input": "Groq:\nmy-key",
+      "expected": { "groq": "my-key" }
+    },
+    {
+      "name": "comments_and_gemini",
+      "input": "# comment\nGemini:\nAIzaExample",
+      "expected": { "gemini": "AIzaExample" }
+    },
+    {
+      "name": "pollinations_and_exa",
+      "input": "Pollinations: pol_key\nPollinations model: flux\nExa search: exa_key",
+      "expected": {
+        "pollinations": "pol_key",
+        "pollinationsModel": "flux",
+        "exa": "exa_key"
+      }
+    },
+    {
+      "name": "open_code_alias",
+      "input": "Open Code: or-key\nOpenrouter model: openai/gpt-4o",
+      "expected": {
+        "openrouter": "or-key",
+        "openrouterModel": "openai/gpt-4o"
+      }
+    }
+  ]
+}

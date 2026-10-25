@@ -1,0 +1,22 @@
+{
+  "aliases": {
+    "groq": "groq",
+    "groqcloud": "groq",
+    "groq cloud": "groq",
+    "openrouter": "openrouter",
+    "open router": "openrouter",
+    "gemini": "gemini",
+    "google gemini": "gemini",
+    "antigravity": "antigravity",
+    "exa": "exa",
+    "pollinations": "pollinations",
+    "groq model": "groqModel",
+    "openrouter model": "openrouterModel",
+    "open router model": "openrouterModel",
+    "gemini model": "geminiModel",
+    "antigravity model": "antigravityModel",
+    "pollinations model": "pollinationsModel",
+    "exa search": "exa",
+    "open code": "openrouter"
+  }
+}

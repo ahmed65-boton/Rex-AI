@@ -331,7 +331,7 @@ input, textarea, select {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 .welcome {
@@ -964,3 +964,212 @@ input, textarea, select {
   .workspace-picker-actions { width: 100%; }
   .workspace-picker-actions button { flex: 1; min-height: 42px; }
 }
+
+
+/* Lightweight custom utility dialogs (no native browser prompt/confirm UI). */
+.rex-dialog { width: min(560px, calc(100vw -  24px)); max-height: min(720px, calc(100vh - 24px)); display: flex; flex-direction: column; }
+.rex-dialog-body { padding: 1.1rem 1.25rem; overflow: auto; }
+.rex-dialog-description { color: var(--text-muted); font-size: .875rem; line-height: 1.5; margin: 0 0 1rem; }
+.rex-dialog-footer { display: flex; justify-content: flex-end; gap: .6rem; padding: .85rem 1.25rem; border-top: 1px solid var(--border); }
+.rex-dialog-footer button { min-height: 40px; }
+.rex-dialog-input { width: 100%; }
+.rex-search-results { display: flex; flex-direction: column; gap: .5rem; max-height: 48vh; overflow: auto; }
+.rex-search-result { width: 100%; padding: .8rem .9rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); text-align: left; }
+.rex-search-result:hover, .rex-search-result:focus-visible { border-color: var(--accent); background: var(--bg-surface-hover); }
+.rex-search-result-title { display: block; color: var(--text-main); font-weight: 600; overflow-wrap: anywhere; }
+.rex-search-result-meta, .rex-search-result-snippet { display: block; color: var(--text-muted); font-size: .78rem; margin-top: .25rem; }
+.rex-search-result-snippet { line-height: 1.45; overflow-wrap: anywhere; }
+.rex-search-empty { padding: 1.5rem .5rem; color: var(--text-muted); text-align: center; }
+.msg-bubble { overflow-wrap: anywhere; }
+#chat-thread { overflow-anchor: auto; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* Credits settings */
+.credits-note{margin:14px 0 0;color:var(--text-muted, #8b8b8b);font-size:.85rem;line-height:1.5}
+
+
+/* Editable long-term memory settings */
+.memory-editor {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font: inherit;
+  line-height: 1.55;
+  outline: none;
+}
+.memory-editor:focus { border-color: var(--accent); }
+.memory-actions { display: flex; justify-content: flex-end; }
+
+/* ── Blueprint additions ───────────────────────────────────── */
+
+.image-preview { display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; padding:.4rem .6rem; background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md); width:fit-content; }
+.image-preview img { max-height:60px; max-width:120px; border-radius:var(--radius-sm); }
+.image-preview-remove { color:var(--danger); font-size:.9rem; padding:2px 6px; border-radius:var(--radius-sm); }
+.image-preview-remove:hover { background:var(--bg-surface-hover); }
+.btn-attach-img { width:32px; height:32px; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--text-muted); background:transparent; border:1px solid transparent; }
+.btn-attach-img:hover { background:var(--bg-surface-hover); color:var(--text-main); }
+
+.variant-nav { display:inline-flex; align-items:center; gap:6px; margin-top:6px; font-size:.75rem; color:var(--text-muted); user-select:none; }
+.variant-nav button { width:22px; height:22px; border-radius:4px; border:1px solid var(--border); color:var(--text-muted); background:var(--bg-surface); }
+.variant-nav button:hover { color:var(--text-main); border-color:var(--border-focus); }
+
+.diff-panel { margin-top:8px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--bg-main); overflow:hidden; }
+.diff-panel summary { padding:6px 10px; font-size:.75rem; color:var(--text-muted); cursor:pointer; font-family:var(--font-mono); }
+.diff-counts { color:var(--accent); margin-left:6px; }
+.diff-body { font-family:var(--font-mono); font-size:.72rem; max-height:280px; overflow:auto; padding:4px 0; }
+.diff-line { padding:0 10px; white-space:pre; display:flex; }
+.diff-prefix { width:14px; flex:0 0 auto; opacity:.7; }
+.diff-add { background:rgba(34,197,94,0.12); color:#86efac; }
+.diff-del { background:rgba(239,68,68,0.12); color:#fca5a5; }
+.diff-ctx { color:var(--text-muted); }
+
+#input-dock.drag-over { border-color:var(--accent); background-image:linear-gradient(0deg, rgba(0,210,182,0.06), rgba(0,210,182,0.06)); outline:2px dashed var(--accent); outline-offset:-4px; }
+
+/* ── Prompt library ─────────────────────────────────────────── */
+.prompt-suggest-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+.prompt-suggest-wrap #user-input { width: 100%; }
+.prompt-suggest {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(100% + 6px);
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  z-index: 40;
+  padding: 4px;
+}
+.prompt-suggest-item {
+  display: flex; flex-direction: column; gap: 2px;
+  width: 100%; text-align: left;
+  padding: 8px 10px; border: none; border-radius: 8px;
+  background: transparent; color: var(--text-main);
+  cursor: pointer; font: inherit;
+}
+.prompt-suggest-item:hover,
+.prompt-suggest-item.active {
+  background: var(--bg-surface-hover, color-mix(in srgb, var(--accent) 12%, transparent));
+}
+.prompt-suggest-title { font-size: 0.85rem; font-weight: 600; }
+.prompt-suggest-preview {
+  font-size: 0.75rem; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.prompt-suggest-empty { padding: 10px 12px; font-size: 0.8rem; color: var(--text-muted); }
+.prompt-library-toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.25rem; }
+.prompt-library-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.prompt-library-empty { color: var(--text-muted); font-size: 0.875rem; padding: 0.75rem 0; }
+.prompt-library-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--bg-surface);
+  padding: 0.75rem 0.9rem;
+  display: flex; flex-direction: column; gap: 0.4rem;
+}
+.prompt-library-card-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+}
+.prompt-library-card-title { font-weight: 600; font-size: 0.9rem; }
+.prompt-library-card-text {
+  font-size: 0.8rem; color: var(--text-muted);
+  white-space: pre-wrap; max-height: 4.5em; overflow: hidden;
+}
+.prompt-library-card-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+.prompt-library-card-actions button {
+  font-size: 0.75rem; padding: 0.25rem 0.55rem; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent; color: var(--text-main); cursor: pointer;
+}
+.prompt-library-card-actions button:hover {
+  background: var(--bg-surface-hover, color-mix(in srgb, var(--accent) 10%, transparent));
+}
+.prompt-library-card-actions .prompt-delete:hover {
+  color: #f87171; border-color: color-mix(in srgb, #f87171 40%, var(--border));
+}
+.msg-ctrl-btn.prompt-save-btn { font-size: 11px; width: auto; padding: 0 6px; gap: 2px; }
+
+.attach-file-label {
+  font-size: 0.8rem;
+  color: var(--text-main);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-card.blocked { border-color: var(--danger); background: rgba(239,68,68,0.08); }
+.risk-card.blocked .risk-badge { color: var(--danger); }
+.risk-blocked-note {
+  font-size: 0.8rem;
+  color: var(--danger);
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+.risk-confirm-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0.5rem 0 0.35rem;
+}
+.risk-confirm-label code {
+  font-family: var(--font-mono, monospace);
+  color: var(--text-main);
+  background: var(--bg-main);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.risk-confirm-input {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+}
+.risk-confirm-input.risk-confirm-mismatch {
+  border-color: var(--danger);
+}
+.risk-card .btn-approve:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+
+/* Chat rename controls */
+.chat-rename {
+  flex: 0 0 auto;
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text, inherit);
+  cursor: pointer;
+  font: inherit;
+}
+.chat-rename:hover { background: var(--surface-hover, rgba(127,127,127,.14)); }
+.rex-search-result-row { display: flex; align-items: stretch; gap: 8px; }
+.rex-search-result-row > .rex-search-result { flex: 1 1 auto; min-width: 0; text-align: left; }
+
+
+/* Custom in-app chat rename dialog */
+.rex-rename-backdrop { z-index: 120; padding: 12px; }
+.rex-rename-dialog { width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 24px); }
+.rex-rename-dialog .modal-header { gap: 12px; }
+.rex-rename-close { border: 0; background: transparent; cursor: pointer; }
+.rex-rename-label { display: block; margin-bottom: 7px; font-size: .875rem; color: var(--text-main); }
+.rex-rename-dialog .rex-dialog-input { box-sizing: border-box; min-height: 42px; padding: .65rem .75rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-main); outline-offset: 2px; }
+.rex-rename-dialog .rex-dialog-input:focus { border-color: var(--accent, #43b581); }
+.rex-rename-error { margin: .6rem 0 0; color: var(--danger, #f87171); font-size: .875rem; }
+.rex-rename-dialog .rex-dialog-footer button { padding: .6rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; background: var(--bg-surface); color: var(--text-main); }
+.rex-rename-dialog .rex-rename-save { background: var(--accent, #43b581); color: var(--accent-contrast, #08130d); border-color: transparent; }
+.rex-rename-dialog .rex-dialog-footer button:disabled { opacity: .65; cursor: wait; }

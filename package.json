@@ -1,0 +1,16 @@
+{
+  "name": "rex-ai-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:frontend": "node --test tests/test_frontend_modules.js",
+    "check": "node --check modules/main.js && node --check modules/app.js && node --check modules/ctx.js && node --check modules/chats.js && node --check modules/messages.js && node --check modules/send.js && node --check modules/settings-ui.js && node --check modules/prompts-ui.js && node --check modules/workspace-ui.js && node --check modules/tools-dispatch.js && node --check modules/keys.js && node --check modules/identity.js && node --check modules/exa.js && node --check modules/chat-controls.js && node --check modules/attachments.js && node --check modules/risk.js && node --check modules/infer.js && node --check modules/state.js && node --check modules/db.js && node --check modules/ws.js && node --check modules/api-keys.js && node --check modules/command-risk.js && node --check modules/markdown.js && node --check modules/chat-utils.js",
+    "test": "npm run check && npm run build && npm run test:frontend && npm run test:py",
+    "test:py": "python -m unittest tests.test_server -v",
+    "test:js": "npm run test:frontend",
+    "build": "esbuild modules/main.js --bundle --format=esm --platform=browser --target=es2022 --external:node:* --sourcemap --sources-content=false --outfile=dist/app.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.11"
+  }
+}

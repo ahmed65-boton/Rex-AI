@@ -7,3 +7,10 @@ API_Keys.txt
 api keys.txt
 api_keys.txt
 generated_images/
+# Build/test artifacts
+.pytest_cache/
+.coverage
+node_modules/
+dist/
+
+npm-debug.log*

@@ -1,0 +1,31 @@
+/* Shared frontend runtime state. Keep this object shape stable for feature modules. */
+export const state = {
+  engine: 'cloud',
+  provider: 'groq',
+  modelSelections: {
+    groq: 'openai/gpt-oss-120b',
+    openrouter: 'openai/gpt-oss-120b',
+    gemini: 'gemini-3.6-flash',
+    antigravity: 'gemini-3.8-flash',
+  },
+  userName: '',
+  memory: '',
+  chatLastAccess: null,
+  streaming: false,
+  abortController: null,
+  wsocket: null,
+  wsConnected: false,
+  workspaceHandle: null,
+  workspaceRootName: null,
+  wasmEngine: null,
+  wasmLoaded: false,
+  exaEnabled: false,
+  apiKeys: {},
+  chatId: null,
+  bridgeWorkspace: false,
+  pendingCommands: {},
+  remoteMode: false,
+  remoteAccessCode: sessionStorage.getItem('rexRemoteAccessCode') || '',
+  remoteGateReady: null,
+  pendingImage: null,  // { base64, mimeType } for vision input
+};

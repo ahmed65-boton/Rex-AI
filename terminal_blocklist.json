@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "description": "Shared absolute-block patterns for Rex terminal. Matched case-insensitively. Keep JS UI and Python bridge in sync via this file only.",
+  "blocked_patterns": [
+    "\\bformat(?:\\.com)?\\s+[a-z]:",
+    "\\brm\\s+-rf\\s+/(?:\\s|$)",
+    "\\bdel\\s+/f\\s+/s\\s+/q\\s+(?:[a-z]:\\\\|\\\\\\\\\\?\\\\)",
+    "\\breg(?:\\.exe)?\\s+delete\\s+hk(?:local_machine|lm)(?:\\\\|\\s|$)",
+    "\\bbcdedit(?:\\.exe)?\\b",
+    "\\bdiskpart(?:\\.exe)?\\b",
+    "\\b(clear-disk|format-volume|initialize-disk)\\b"
+  ]
+}

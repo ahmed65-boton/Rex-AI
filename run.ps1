@@ -3,6 +3,24 @@ $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectDir
 
+# Build the browser bundle before starting the local server.
+$node = Get-Command node -ErrorAction SilentlyContinue
+$npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
+if (-not $node -or -not $npm) {
+    throw "Node.js and npm are required to build Rex AI. Install the current Node.js LTS release, then rerun run.ps1."
+}
+
+$esbuild = Join-Path $ProjectDir "node_modules\.bin\esbuild.cmd"
+if (-not (Test-Path $esbuild)) {
+    Write-Host "[0/4] Installing frontend build dependency (ESBuild)..."
+    & $npm.Source install --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw "npm install failed. Check your internet connection and npm configuration." }
+}
+Write-Host "[0/4] Building frontend with ESBuild..."
+& $npm.Source run build
+if ($LASTEXITCODE -ne 0) { throw "ESBuild failed. Rex AI was not started." }
+
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) { $python = Get-Command py -ErrorAction SilentlyContinue }
 if (-not $python) { Write-Error "Python was not found. Install Python 3.10+ first."; exit 1 }
