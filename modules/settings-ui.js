@@ -6,7 +6,7 @@ import { parseApiKeyText } from './api-keys.js';
 import { normalizeMemory } from './memory.js';
 
 /* ── Settings ───────────────────────────────────────────────── */
-const KEY_FIELDS = ['groq','openrouter','gemini','antigravity','pollinations','pollinationsModel'];
+const KEY_FIELDS = ['groq','openrouter','gemini','mistral','antigravity','pollinations','pollinationsModel'];
 
 const providerModelCache = new Map();
 const providerModelRequests = new Map();
@@ -16,6 +16,7 @@ const MODEL_FALLBACKS = {
   groq: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'],
   openrouter: ['openai/gpt-oss-120b'],
   gemini: ['gemini-3.6-flash'],
+  mistral: ['mistral-small-latest', 'mistral-medium-latest', 'mistral-large-latest', 'codestral-latest'],
 };
 
 export function updateKeyStatuses() {
@@ -101,6 +102,9 @@ export async function fetchProviderModels(provider) {
   } else if (provider === 'openrouter') {
     url = 'https://openrouter.ai/api/v1/models';
     headers = { Authorization: `Bearer ${key}` };
+  } else if (provider === 'mistral') {
+    url = 'https://api.mistral.ai/v1/models';
+    headers = { Authorization: `Bearer ${key}` };
   } else {
     url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`;
   }
@@ -171,7 +175,7 @@ export async function loadModelOptions(provider, forceRefresh = false) {
   }
 }
 export function renderModelSettings() {
-  for (const provider of ['groq','openrouter','gemini']) {
+  for (const provider of ['groq','openrouter','gemini','mistral']) {
     const select = $(`model-select-${provider}`);
     if (select) {
       select.value = state.modelSelections[provider];
@@ -204,6 +208,7 @@ export async function importApiKeysFile(file) {
   if (imported.groqModel) state.modelSelections.groq = imported.groqModel;
   if (imported.openrouterModel) state.modelSelections.openrouter = imported.openrouterModel;
   if (imported.geminiModel) state.modelSelections.gemini = imported.geminiModel;
+  if (imported.mistralModel) state.modelSelections.mistral = imported.mistralModel;
   if (imported.antigravityModel) state.modelSelections.antigravity = imported.antigravityModel;
   await ctx.idbPut('settings', state.apiKeys, 'apiKeys');
   await ctx.idbPut('settings', ctx.apiKeyFileName, 'ctx.apiKeyFileName');

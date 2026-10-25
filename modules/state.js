@@ -6,6 +6,7 @@ export const state = {
     groq: 'openai/gpt-oss-120b',
     openrouter: 'openai/gpt-oss-120b',
     gemini: 'gemini-3.6-flash',
+    mistral: 'mistral-small-latest',
     antigravity: 'gemini-3.8-flash',
   },
   userName: '',

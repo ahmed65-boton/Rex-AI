@@ -57,6 +57,7 @@ export async function loadKeys() {
     if (fileKeys.groqModel) state.modelSelections.groq = fileKeys.groqModel;
     if (fileKeys.openrouterModel) state.modelSelections.openrouter = fileKeys.openrouterModel;
     if (fileKeys.geminiModel) state.modelSelections.gemini = fileKeys.geminiModel;
+    if (fileKeys.mistralModel) state.modelSelections.mistral = fileKeys.mistralModel;
     if (fileKeys.antigravityModel) state.modelSelections.antigravity = fileKeys.antigravityModel;
     ctx.apiKeyFileExaOverride = exa || ctx.apiKeyFileExaOverride || null;
     ctx.apiKeyFileSource = 'auto-detected';

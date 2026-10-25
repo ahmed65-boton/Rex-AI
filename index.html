@@ -42,6 +42,7 @@
           <option value="groq">GroqCloud · GPT-OSS 120B</option>
           <option value="openrouter">OpenRouter · GPT-OSS 120B</option>
           <option value="gemini">Google Gemini · 3.6 Flash</option>
+          <option value="mistral">Mistral · Small</option>
            <option value="antigravity">Antigravity · Full Agent</option>
         </select>
       </div>
@@ -169,6 +170,7 @@
             <div class="settings-card"><div class="card-title">GroqCloud</div><label class="field-label" for="key-groq">API KEY</label><input class="field-input" id="key-groq" type="password" autocomplete="off"><span class="key-status" id="key-status-groq">not configured</span></div>
             <div class="settings-card"><div class="card-title">OpenRouter</div><label class="field-label" for="key-openrouter">API KEY</label><input class="field-input" id="key-openrouter" type="password" autocomplete="off"><span class="key-status" id="key-status-openrouter">not configured</span></div>
             <div class="settings-card"><div class="card-title">Google Gemini</div><label class="field-label" for="key-gemini">API KEY</label><input class="field-input" id="key-gemini" type="password" autocomplete="off"><span class="key-status" id="key-status-gemini">not configured</span></div>
+            <div class="settings-card"><div class="card-title">Mistral</div><label class="field-label" for="key-mistral">API KEY</label><input class="field-input" id="key-mistral" type="password" autocomplete="off"><span class="key-status" id="key-status-mistral">not configured</span></div>
             <div class="settings-card"><div class="card-title">Google Antigravity</div><label class="field-label" for="key-antigravity">API KEY</label><input class="field-input" id="key-antigravity" type="password" autocomplete="off"><span class="field-help">Separate Gemini API key used only by the Antigravity agent.</span></div><div class="settings-card"><div class="card-title">Pollinations · Image Generation</div><label class="field-label" for="key-pollinations">API KEY</label><input class="field-input" id="key-pollinations" type="password" autocomplete="off"><span class="key-status" id="key-status-pollinations">file only</span><label class="field-label second-label" for="key-pollinationsModel">MODEL</label><input class="field-input" id="key-pollinationsModel" type="text" placeholder="flux" autocomplete="off"><span class="key-status" id="key-status-pollinationsModel">default</span></div>
             <div class="settings-card exa-card"><div class="card-title">Exa</div><div class="exa-lock">● API key only</div><p id="exa-key-status">Exa is loaded from API_Keys.txt.</p></div>
           </div>
@@ -223,6 +225,7 @@ Building a browser-based AI assistant called Rex."></textarea>
             <div class="model-provider-card"><div class="model-provider-heading"><div><strong>GroqCloud</strong><span>Groq OpenAI-compatible API</span></div><button class="model-refresh" data-provider="groq" title="Refresh models">↻</button></div><select class="model-setting-select" id="model-select-groq"></select><p class="model-status" id="model-status-groq">Loading…</p></div>
             <div class="model-provider-card"><div class="model-provider-heading"><div><strong>OpenRouter</strong><span>OpenRouter model catalog</span></div><button class="model-refresh" data-provider="openrouter" title="Refresh models">↻</button></div><select class="model-setting-select" id="model-select-openrouter"></select><p class="model-status" id="model-status-openrouter">Loading…</p></div>
             <div class="model-provider-card"><div class="model-provider-heading"><div><strong>Google Gemini</strong><span>Gemini generateContent models</span></div><button class="model-refresh" data-provider="gemini" title="Refresh models">↻</button></div><select class="model-setting-select" id="model-select-gemini"></select><p class="model-status" id="model-status-gemini">Loading…</p></div>
+            <div class="model-provider-card"><div class="model-provider-heading"><div><strong>Mistral</strong><span>Mistral API (OpenAI-compatible)</span></div><button class="model-refresh" data-provider="mistral" title="Refresh models">↻</button></div><select class="model-setting-select" id="model-select-mistral"></select><p class="model-status" id="model-status-mistral">Loading…</p></div>
           </div>
         </div>
       </div>

@@ -6,3 +6,8 @@ Gemini:
 Antigravity:
 Exa:
 Pollinations:
+
+Mistral:
+YOUR_MISTRAL_API_KEY
+Mistral model:
+mistral-small-latest

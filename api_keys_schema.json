@@ -17,6 +17,12 @@
     "antigravity model": "antigravityModel",
     "pollinations model": "pollinationsModel",
     "exa search": "exa",
-    "open code": "openrouter"
+    "open code": "openrouter",
+    "mistral": "mistral",
+    "mistral ai": "mistral",
+    "mistral api": "mistral",
+    "mistral api key": "mistral",
+    "mistral key": "mistral",
+    "mistral model": "mistralModel"
   }
 }

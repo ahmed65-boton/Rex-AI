@@ -44,7 +44,7 @@ export async function loadProviderSettings() {
   const savedProvider = await idbGet('settings', 'provider');
   const savedModels = await idbGet('settings', 'modelSelections');
   const savedName = await idbGet('settings', 'userName');
-  if (savedProvider && ['groq','openrouter','gemini','antigravity'].includes(savedProvider)) state.provider = savedProvider;
+  if (savedProvider && ['groq','openrouter','gemini','mistral','antigravity'].includes(savedProvider)) state.provider = savedProvider;
   if (savedModels && typeof savedModels === 'object') state.modelSelections = { ...state.modelSelections, ...savedModels };
   if (typeof savedName === 'string') state.userName = savedName;
 }
